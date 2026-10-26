@@ -1,0 +1,30 @@
+# Local builds and Swift caches
+build/
+.build/
+.swiftpm/
+DerivedData/
+
+# Local task, bookmark, proposal, and test stores
+.local-data/
+.demo-data/
+.qa-data/
+*.local.json
+
+# Local verification artifacts and packaged binaries
+evidence/
+*.zip
+*.dmg
+*.app/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.venv/
+
+# Editor, OS, and credential files
+.DS_Store
+.env
+.env.*
+!.env.example
+*.pem
+*.key
