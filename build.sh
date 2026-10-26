@@ -2,7 +2,9 @@
 set -euo pipefail
 cd "${0:A:h}"
 mkdir -p build/bist.app/Contents/MacOS build/bist.app/Contents/Resources build/module-cache
-xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" -target arm64-apple-macosx14.0 Sources/BistCore.swift Sources/LocalInbox.swift Sources/BistApp.swift -o build/bist.app/Contents/MacOS/bist
+xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" -target arm64-apple-macosx14.0 Sources/*.swift -o build/bist.app/Contents/MacOS/bist
+xcrun swift -module-cache-path "$PWD/build/module-cache" scripts/make-icon.swift build/BrandAssets
+cp build/BrandAssets/bist.icns build/bist.app/Contents/Resources/bist.icns
 cat > build/bist.app/Contents/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -13,6 +15,7 @@ cat > build/bist.app/Contents/Info.plist <<'PLIST'
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleExecutable</key><string>bist</string>
+<key>CFBundleIconFile</key><string>bist</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
