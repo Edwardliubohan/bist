@@ -247,5 +247,33 @@ extension View {
                                    value: [BistInteractionRegion(kind: kind, rect: proxy.frame(in: .named("bistPanel")))])
         })
     }
-    func bistTextEntry() -> some View { bistInteractionRegion(.text) }
+    func bistTextEntry(focused: FocusState<Bool>.Binding? = nil) -> some View {
+        modifier(BistTextEntryFocus(externalFocus: focused))
+    }
+}
+
+/// A caret blinks; the outline keeps the active editing surface identifiable
+/// between blinks. Share an existing binding where a caller requests focus.
+private struct BistTextEntryFocus: ViewModifier {
+    @EnvironmentObject private var focusContext: BistFocusContext
+    @Environment(\.controlActiveState) private var activeState
+    @FocusState private var localFocus: Bool
+    var externalFocus: FocusState<Bool>.Binding?
+    private var focus: FocusState<Bool>.Binding { externalFocus ?? $localFocus }
+
+    func body(content: Content) -> some View {
+        content
+            .focused(focus)
+            .tint(ink)
+            .bistInteractionRegion(.text)
+            .overlay {
+                if focus.wrappedValue && activeState != .inactive {
+                    RoundedRectangle(cornerRadius: 4)
+                        .inset(by: -2)
+                        .strokeBorder(accent.opacity(0.7), lineWidth: 1)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
+            .onChange(of: focusContext.textDismissGeneration) { focus.wrappedValue = false }
+    }
 }
