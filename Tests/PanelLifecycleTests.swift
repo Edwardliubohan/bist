@@ -29,6 +29,23 @@ struct PanelLifecycleTests {
                               clickCount: 1, pressure: 1)!
         }
 
+        // Keyboard and visible settings navigation must use the same reset path.
+        let navigation = PanelState()
+        navigation.showSessionForm = true
+        navigation.showInbox = true
+        navigation.showAgentResults = true
+        navigation.detailID = UUID()
+        navigation.openSettings()
+        expect(navigation.expanded && navigation.showSettings, "Settings opens even from a compact key panel")
+        expect(!navigation.showSessionForm && !navigation.showInbox && !navigation.showAgentResults && navigation.detailID == nil, "Settings normalizes stale page flags")
+        navigation.showSettings = false
+        navigation.showInbox = true
+        expect(navigation.showInbox && !navigation.showSessionForm, "Settings can route to updates without stale session form")
+        navigation.toggleSettings()
+        expect(navigation.showSettings && !navigation.showInbox, "Settings button shares the normalized opening route")
+        navigation.toggleSettings()
+        expect(!navigation.showSettings && navigation.expanded, "Settings button returns to the open task panel")
+
         // A half-open header must not cancel the only animation that can finish the reveal.
         delegate.state.expanded = true
         delegate.state.reveal = 0.5

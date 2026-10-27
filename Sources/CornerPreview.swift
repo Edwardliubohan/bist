@@ -166,9 +166,7 @@ private struct HoverTaskPreview: View {
     var aboveAnchor = false
     let onHover: (Bool) -> Void
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    private let ink = Color(red: 0.18, green: 0.17, blue: 0.23)
-    private let secondary = Color(red: 0.40, green: 0.38, blue: 0.46)
-    private let accent = Color(red: 0.47, green: 0.37, blue: 0.73)
+    private let secondary = muted
     private var selection: PreviewTaskSelection<TaskItem> {
         PreviewTaskSelection(store.tasks, isOutstanding: { !$0.completed }, isShortTerm: { $0.horizon == .shortTerm })
     }

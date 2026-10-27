@@ -254,6 +254,10 @@ final class AppStore: ObservableObject {
         let snapshot: BistSnapshot
         let label: String
     }
+    /// Drafts for deleted tasks stay available for every retained Undo action.
+    var undoTaskIDs: Set<UUID> {
+        Set(undoEntries.flatMap { $0.snapshot.tasks.map(\.id) })
+    }
     private var undoEntries: [UndoEntry] = []
     private var blockedByUnreadableStore = false
     private let fileManager = FileManager.default
@@ -489,9 +493,15 @@ final class AppStore: ObservableObject {
         switch placement {
         case .before:
             insertion = remaining.firstIndex { $0.id == target!.id }!
-        case .inside, .after:
-            let targetTree = subtreeIDs(rootID: target!.id)
-            insertion = (remaining.lastIndex { targetTree.contains($0.id) } ?? remaining.count - 1) + 1
+        case .after:
+            // Storage need not be depth-first. Only sibling order determines
+            // placement; a late descendant may follow unrelated siblings.
+            insertion = remaining.firstIndex { $0.id == target!.id }! + 1
+        case .inside:
+            // Append among direct children, independent of where their deeper
+            // descendants happen to be stored.
+            insertion = (remaining.lastIndex { $0.parentID == target!.id }
+                         ?? remaining.firstIndex { $0.id == target!.id }!) + 1
         case .list:
             insertion = (remaining.lastIndex { $0.horizon == horizon } ?? remaining.count - 1) + 1
         }
@@ -507,10 +517,16 @@ final class AppStore: ObservableObject {
         guard !blockedByUnreadableStore, let task = tasks.first(where: { $0.id == id }) else { return false }
         let removed = includingSubtasks ? subtreeIDs(rootID: id) : [id]
         return commit(label: includingSubtasks ? "Task and subtasks deleted" : "Task deleted") { value in
-            value.tasks.removeAll { removed.contains($0.id) }
-            if !includingSubtasks {
-                for index in value.tasks.indices where value.tasks[index].parentID == id {
-                    value.tasks[index].parentID = task.parentID
+            if includingSubtasks {
+                value.tasks.removeAll { removed.contains($0.id) }
+            } else {
+                var promoted = value.tasks.filter { $0.parentID == id }
+                for index in promoted.indices { promoted[index].parentID = task.parentID }
+                // Replace the deleted sibling with its direct children in their
+                // existing order. Descendants retain their own sibling order.
+                value.tasks = value.tasks.flatMap { item -> [TaskItem] in
+                    if item.id == id { return promoted }
+                    return item.parentID == id ? [] : [item]
                 }
             }
         }

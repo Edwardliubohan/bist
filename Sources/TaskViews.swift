@@ -18,8 +18,7 @@ struct ChecklistPane: View {
     let reducedMotion: Bool
     @ObservedObject var viewState: ChecklistViewState
     @StateObject private var drag = TaskDragState()
-    @State private var movingTaskID: UUID?
-    @State private var movePickerPresented = false
+    @State private var movingTask: TaskItem?
 
     private var collapsedParents: Set<UUID> {
         get { viewState.collapsedParents }
@@ -94,10 +93,8 @@ struct ChecklistPane: View {
         .clipped()
         .animation(reducedMotion ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.20), value: showLabels)
         .animation(reducedMotion ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.20), value: viewState.showHistory)
-        .popover(isPresented: $movePickerPresented) {
-            if let id = movingTaskID {
-                TaskMovePicker(store: store, taskID: id) { movePickerPresented = false }
-            }
+        .popover(item: $movingTask) { task in
+            TaskMovePicker(store: store, taskID: task.id) { movingTask = nil }
         }
         .onAppear(perform: consumeFocusRequest)
         .onChange(of: focusRequest) { consumeFocusRequest() }
@@ -144,7 +141,7 @@ struct ChecklistPane: View {
                         collapsedParents.remove(entry.id)
                         viewState.creation.requestFocus()
                     }
-                    Button("Move to…") { movingTaskID = entry.id; movePickerPresented = true }
+                    Button("Move to…") { movingTask = entry.task }
                     if entry.task.parentID != nil {
                         Button("Move out one level") {
                             let parent = store.tasks.first { $0.id == entry.task.parentID }

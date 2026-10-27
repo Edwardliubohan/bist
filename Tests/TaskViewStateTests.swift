@@ -54,7 +54,31 @@ struct TaskViewStateTests {
         cache.retainTasks(ids: [task.id])
         expect(cache.draft(for: task) === draft, "retained task preserves draft")
         cache.retainTasks(ids: [])
-        expect(cache.draft(for: task) !== draft, "removed task draft is pruned")
+        cache.retainTasks(ids: [])
+        expect(cache.draft(for: task) === draft, "deleted task draft survives repeated retention for undo")
+
+        let boundedCache = TaskInspectorDrafts(deletedDraftLimit: 2)
+        let retired = (0..<3).map { TaskItem(title: "Retired \($0)") }
+        let retiredDrafts = retired.map { boundedCache.draft(for: $0) }
+        let liveTask = TaskItem(title: "Live")
+        let liveDraft = boundedCache.draft(for: liveTask)
+        boundedCache.retainTasks(ids: [liveTask.id, retired[1].id, retired[2].id])
+        boundedCache.retainTasks(ids: [liveTask.id, retired[2].id])
+        boundedCache.retainTasks(ids: [liveTask.id, retired[2].id])
+        boundedCache.retainTasks(ids: [liveTask.id])
+        expect(boundedCache.draft(for: retired[0]) !== retiredDrafts[0], "oldest deleted draft is evicted at retention bound")
+        expect(boundedCache.draft(for: retired[1]) === retiredDrafts[1] && boundedCache.draft(for: retired[2]) === retiredDrafts[2],
+               "recent deleted drafts survive without repeated retention refreshing their age")
+        expect(boundedCache.draft(for: liveTask) === liveDraft, "deleted retention bound never evicts a live draft")
+
+        let recoverableCache = TaskInspectorDrafts(deletedDraftLimit: 1)
+        let recoverableTasks = (0..<3).map { TaskItem(title: "Recoverable \($0)") }
+        let recoverableDrafts = recoverableTasks.map { recoverableCache.draft(for: $0) }
+        recoverableCache.retainTasks(ids: [], undoableIDs: Set(recoverableTasks.map(\.id)))
+        expect(zip(recoverableTasks, recoverableDrafts).allSatisfy { recoverableCache.draft(for: $0.0) === $0.1 },
+               "undoable subtree drafts bypass fallback retention cap")
+        recoverableCache.retainTasks(ids: [], undoableIDs: [])
+        expect(recoverableCache.draft(for: recoverableTasks[0]) !== recoverableDrafts[0], "draft is pruned once neither live nor undoable")
 
         let checklist = ChecklistViewState()
         expect(!checklist.consumeFocusRequest(0), "mouse opening never focuses capture by default")
@@ -67,6 +91,40 @@ struct TaskViewStateTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("bist-view-state-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = AppStore(directory: directory)
+        let undoStore = AppStore(directory: directory.appendingPathComponent("draft-delete-undo"))
+        expect(undoStore.addTask(title: "Persisted title", details: "Persisted details"), "create deletion regression task")
+        let undoTask = undoStore.tasks[0]
+        let undoCache = TaskInspectorDrafts()
+        let unsaved = undoCache.draft(for: undoTask)
+        unsaved.title = "Unsaved title"; unsaved.notes = "Unsaved details"
+        unsaved.subtaskCreation.title = "Unsubmitted child"
+        unsaved.subtaskCreation.details = "Unsubmitted child details"
+        expect(undoStore.deleteTask(id: undoTask.id), "delete task with dirty inspector")
+        undoCache.retainTasks(ids: Set(undoStore.tasks.map(\.id)), undoableIDs: undoStore.undoTaskIDs)
+        undoCache.retainTasks(ids: Set(undoStore.tasks.map(\.id)), undoableIDs: undoStore.undoTaskIDs)
+        expect(undoStore.undoTaskIDs.contains(undoTask.id), "deleted task ID is retained by undo snapshots")
+        expect(undoStore.undo(), "undo deletion with retained inspector draft")
+        undoCache.retainTasks(ids: Set(undoStore.tasks.map(\.id)), undoableIDs: undoStore.undoTaskIDs)
+        expect(!undoStore.undoTaskIDs.contains(undoTask.id), "completed undo releases obsolete task IDs from undo snapshots")
+        let undoRestored = undoStore.tasks.first { $0.id == undoTask.id }!
+        let reopenedDraft = undoCache.draft(for: undoRestored)
+        reopenedDraft.reconcile(with: undoRestored)
+        expect(reopenedDraft === unsaved && reopenedDraft.title == "Unsaved title" && reopenedDraft.notes == "Unsaved details",
+               "reopening after delete and undo preserves dirty title and details")
+        expect(reopenedDraft.subtaskCreation.title == "Unsubmitted child" && reopenedDraft.subtaskCreation.details == "Unsubmitted child details" &&
+               reopenedDraft.subtaskCreation.parentID == undoTask.id,
+               "reopening after delete and undo preserves complete subtask capture")
+        expect(reopenedDraft.isDirty && reopenedDraft.incoming == nil && undoRestored.title == "Persisted title" && undoRestored.notes == "Persisted details",
+               "undo restores persisted baseline without silently saving or conflicting with retained draft")
+        expect(undoStore.deleteTask(id: undoTask.id), "delete retained task again")
+        undoCache.retainTasks(ids: Set(undoStore.tasks.map(\.id)), undoableIDs: undoStore.undoTaskIDs)
+        expect(undoStore.addTask(title: undoTask.title, details: undoTask.notes), "create same-text replacement with fresh UUID")
+        undoCache.retainTasks(ids: Set(undoStore.tasks.map(\.id)), undoableIDs: undoStore.undoTaskIDs)
+        let replacement = undoStore.tasks[0]
+        let replacementDraft = undoCache.draft(for: replacement)
+        expect(replacement.id != undoTask.id && replacementDraft !== unsaved && !replacementDraft.isDirty &&
+               replacementDraft.title == undoTask.title && replacementDraft.notes == undoTask.notes && replacementDraft.subtaskTitle.isEmpty,
+               "same-text replacement never resurrects deleted UUID's unsaved draft")
         let creation = TaskCreationDraft()
         expect(creation.horizon == .shortTerm && !creation.agentHelpRequested && !creation.expanded,
                "creation starts minimal in short term with no agent request")

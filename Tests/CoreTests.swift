@@ -496,6 +496,89 @@ struct CoreTests {
         expect(!moving.tasks.contains { [a, child, grandchild].contains($0.id) }, "subtree deletion removes exactly the selected tree")
         expect(moving.tasks.contains { $0.id == b } && moving.tasks.contains { $0.id == c }, "subtree deletion retains other tasks")
         expect(moving.undo() && moving.tasks == afterTree, "subtree deletion has one undo")
+        // Run with -D BIST_CHECKLIST_TESTS and Sources/TaskViewState.swift to
+        // additionally verify the production renderer, without adding a view
+        // dependency to the standalone core test executable.
+        let orderingSession = SessionItem(provider: .codex, title: "Preserved session", url: "https://example.com/session")
+        func expectVisible(_ tasks: [TaskItem], _ titles: [String], _ message: String) {
+#if BIST_CHECKLIST_TESTS
+            expect(ActiveChecklist(tasks: tasks, collapsedParents: []).entries(for: .shortTerm).map { $0.task.title } == titles, message)
+#endif
+        }
+        func orderingFixture(_ name: String, _ tasks: [TaskItem]) throws -> AppStore {
+            let directory = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try encoder.encode(BistSnapshot(tasks: tasks, sessions: [orderingSession])).write(to: directory.appendingPathComponent("state.json"))
+            let result = AppStore(directory: directory)
+            expect(result.storeError == nil && result.tasks == tasks && !result.canUndo, "\(name): fixture loads exactly")
+            return result
+        }
+        func verifyOrdering(_ store: AppStore, before: [TaskItem], after: [TaskItem], visible: [String], originalVisible: [String], name: String) {
+            expect(store.tasks == after, "\(name): exact task fields and storage order")
+            expect(store.sessions == [orderingSession] && store.labels == TaskLabel.defaults, "\(name): session and labels unchanged")
+            expectVisible(store.tasks, visible, "\(name): active visible order")
+            let reloaded = AppStore(directory: store.directory)
+            expect(reloaded.tasks == after && reloaded.completedHistory == store.completedHistory && reloaded.sessions == store.sessions && reloaded.labels == store.labels, "\(name): reload preserves all fields and completion history")
+            expectVisible(reloaded.tasks, visible, "\(name): visible order after reload")
+            expect(store.undo() && store.tasks == before && !store.canUndo, "\(name): one exact undo")
+            expectVisible(store.tasks, originalVisible, "\(name): visible order after undo")
+            let undoneReload = AppStore(directory: store.directory)
+            expect(undoneReload.tasks == before && undoneReload.sessions == [orderingSession] && undoneReload.labels == TaskLabel.defaults, "\(name): exact undo persists")
+            expectVisible(undoneReload.tasks, originalVisible, "\(name): visible undo order after reload")
+        }
+        let orderDate = Date(timeIntervalSince1970: 1000)
+        let orderA = TaskItem(title: "A", createdAt: orderDate)
+        let orderB = TaskItem(title: "B", createdAt: orderDate)
+        let orderC = TaskItem(title: "C", createdAt: orderDate)
+        let orderEvidence = AgentCompletion(sessionID: orderingSession.id, artifactURL: "https://example.com/artifact", summary: "Keep reviewed evidence", observedAt: orderDate, reviewedAt: orderDate)
+        let orderChild = TaskItem(title: "child", notes: "Keep details", nextAction: "Keep next action", source: "Manual", sourceURL: "https://example.com/child", lane: .waiting, isSample: true, createdAt: orderDate, parentID: orderA.id, labelIDs: [TaskLabel.defaults[0].id], linkedSessionID: orderingSession.id, agentCompletion: orderEvidence, agentHelpRequested: true)
+        let scattered = [orderA, orderB, orderC, orderChild]
+        for (name, moved, expected) in [
+            ("scattered-after-C", orderC.id, [orderA, orderC, orderB, orderChild]),
+            ("scattered-after-B", orderB.id, [orderA, orderB, orderC, orderChild])
+        ] {
+            let fixture = try orderingFixture(name, scattered)
+            expectVisible(fixture.tasks, ["A", "child", "B", "C"], "\(name): initial visible order")
+            expect(fixture.moveTask(id: moved, to: .after(orderA.id)), "\(name): after succeeds")
+            if moved == orderB.id {
+                expect(fixture.tasks == scattered && !fixture.canUndo, "already adjacent sibling remains an exact no-op")
+                expectVisible(AppStore(directory: fixture.directory).tasks, ["A", "child", "B", "C"], "adjacent sibling remains visible after reload")
+            } else {
+                verifyOrdering(fixture, before: scattered, after: expected, visible: ["A", "child", "C", "B"], originalVisible: ["A", "child", "B", "C"], name: name)
+            }
+        }
+        let promotedFixture = try orderingFixture("scattered-delete", scattered)
+        var promotedChild = orderChild; promotedChild.parentID = nil
+        expectVisible(promotedFixture.tasks, ["A", "child", "B", "C"], "delete: initial visible order")
+        expect(promotedFixture.deleteTask(id: orderA.id), "scattered parent deletion succeeds")
+        verifyOrdering(promotedFixture, before: scattered, after: [promotedChild, orderB, orderC], visible: ["child", "B", "C"], originalVisible: ["A", "child", "B", "C"], name: "scattered-delete")
+
+        // Nested siblings and completed descendants are also noncontiguous.
+        let outer = TaskItem(title: "Outer", createdAt: orderDate)
+        var nestedA = orderA; nestedA.parentID = outer.id
+        var nestedB = orderB; nestedB.parentID = outer.id
+        var nestedC = orderC; nestedC.parentID = outer.id
+        let secondChild = TaskItem(title: "second child", createdAt: orderDate, parentID: orderA.id)
+        let grand = TaskItem(title: "grandchild", createdAt: orderDate, parentID: orderChild.id)
+        let done = TaskItem(title: "Completed descendant", notes: "Keep history", completed: true, createdAt: orderDate, parentID: orderChild.id, completedAt: orderDate)
+        let nestedScattered = [outer, nestedA, nestedB, nestedC, orderChild, secondChild, grand, done]
+        let nestedVisible = ["Outer", "A", "child", "grandchild", "second child", "B", "C"]
+        let nestedMove = try orderingFixture("nested-scattered-after", nestedScattered)
+        expectVisible(nestedMove.tasks, nestedVisible, "nested move: initial visible order")
+        expect(nestedMove.moveTask(id: nestedC.id, to: .after(nestedA.id)), "nested after succeeds")
+        verifyOrdering(nestedMove, before: nestedScattered, after: [outer, nestedA, nestedC, nestedB, orderChild, secondChild, grand, done], visible: ["Outer", "A", "child", "grandchild", "second child", "C", "B"], originalVisible: nestedVisible, name: "nested-scattered-after")
+        let nestedDelete = try orderingFixture("nested-scattered-delete", nestedScattered)
+        var nestedPromoted = orderChild; nestedPromoted.parentID = outer.id
+        var secondPromoted = secondChild; secondPromoted.parentID = outer.id
+        expectVisible(nestedDelete.tasks, nestedVisible, "nested delete: initial visible order")
+        expect(nestedDelete.deleteTask(id: nestedA.id), "nested parent deletion succeeds")
+        verifyOrdering(nestedDelete, before: nestedScattered, after: [outer, nestedPromoted, secondPromoted, nestedB, nestedC, grand, done], visible: ["Outer", "child", "grandchild", "second child", "B", "C"], originalVisible: nestedVisible, name: "nested-scattered-delete")
+        let insideFixture = try orderingFixture("scattered-inside", nestedScattered)
+        var insideB = nestedB; insideB.parentID = orderA.id
+        expectVisible(insideFixture.tasks, nestedVisible, "inside: initial visible order")
+        expect(insideFixture.moveTask(id: nestedB.id, to: .inside(orderA.id)), "inside append succeeds")
+        verifyOrdering(insideFixture, before: nestedScattered, after: [outer, nestedA, nestedC, orderChild, secondChild, insideB, grand, done], visible: ["Outer", "A", "child", "grandchild", "second child", "B", "C"], originalVisible: nestedVisible, name: "scattered-inside")
+
         let failureMover = AppStore(directory: root.appendingPathComponent("move-write-failure"))
         expect(failureMover.addTask(title: "Retained A") && failureMover.addTask(title: "Retained B"), "write failure fixture added")
         let failureBefore = failureMover.tasks

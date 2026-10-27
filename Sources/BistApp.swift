@@ -46,6 +46,13 @@ final class PanelState: ObservableObject {
         detailID = nil; showSessionForm = false; showInbox = false; showAgentResults = false; showSettings = false
         selectedTab = index
     }
+    func openSettings() {
+        setExpanded(true)
+        showSettings = true
+    }
+    func toggleSettings() {
+        if showSettings { showSettings = false } else { openSettings() }
+    }
     func toggle() { setExpanded(!expanded) }
     func setExpanded(_ value: Bool) {
         detailID = nil; showSessionForm = false; showInbox = false; showAgentResults = false; showSettings = false
@@ -223,7 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             if event.modifierFlags.contains(.command) {
                 switch event.charactersIgnoringModifiers {
-                case ",": self.state.showSettings = true; self.state.detailID = nil; return nil
+                case ",": self.state.openSettings(); return nil
                 case "n": self.state.selectedTab = 0; self.state.setExpanded(true); self.state.focusAddToken += 1; return nil
                 case "a": if let editor = self.panel.firstResponder as? NSText { editor.selectAll(nil); return nil }
                 case "1": self.state.selectTab(0); self.state.setExpanded(true); return nil
@@ -409,10 +416,10 @@ struct BistView: View {
         .environment(\.bistReduced, reduceMotion || state.reduced)
         .environmentObject(state.focusContext)
         .onAppear { syncPreviewPreferences() }
-        .onChange(of: store.tasks.map(\.id)) { _, ids in
-            let retained = Set(ids)
+        .onChange(of: store.tasks) { _, tasks in
+            let retained = Set(tasks.map(\.id))
             if let id = state.detailID, !retained.contains(id) { state.detailID = nil }
-            inspectorDrafts.retainTasks(ids: retained)
+            inspectorDrafts.retainTasks(ids: retained, undoableIDs: store.undoTaskIDs)
         }
         .onChange(of: opaque) { syncPreviewPreferences() }
         .onChange(of: reduceMotion || state.reduced) { syncPreviewPreferences() }
@@ -507,8 +514,7 @@ struct BistView: View {
                 .bistInteractionRegion(.drag)
                 .accessibilityLabel("Drag bist to move")
             BistButton {
-                state.detailID = nil; state.showSessionForm = false; state.showInbox = false; state.showAgentResults = false
-                state.showSettings.toggle()
+                state.toggleSettings()
             } label: {
                 Image(systemName: "gearshape").font(.system(size: 13)).frame(width: 30, height: 32)
                     .foregroundColor(state.showSettings ? accent : muted)
