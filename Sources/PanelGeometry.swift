@@ -10,13 +10,16 @@ struct PreviewTaskSelection<Element> {
     var visibleCount: Int { shortTerm.count + longerTerm.count }
     var visibleGroupCount: Int { (shortTerm.isEmpty ? 0 : 1) + (longerTerm.isEmpty ? 0 : 1) }
 
-    init(_ items: [Element], limit: Int = 3, isOutstanding: (Element) -> Bool, isShortTerm: (Element) -> Bool) {
+    var contentHeight: CGFloat {
+        visibleCount == 0 ? 42 : CGFloat(24 + visibleCount * 22 + visibleGroupCount * 18 + max(0, visibleGroupCount - 1) * 8)
+    }
+
+    init(_ items: [Element], isOutstanding: (Element) -> Bool, isShortTerm: (Element) -> Bool) {
         let active = items.filter(isOutstanding)
         let short = active.filter(isShortTerm)
         let long = active.filter { !isShortTerm($0) }
-        let maximum = max(0, limit)
-        shortTerm = Array(short.prefix(maximum))
-        longerTerm = Array(long.prefix(max(0, maximum - shortTerm.count)))
+        shortTerm = short
+        longerTerm = long
         outstandingCount = active.count
     }
 }
