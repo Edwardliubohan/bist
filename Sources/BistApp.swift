@@ -578,7 +578,6 @@ struct BistView: View {
                 .frame(maxHeight: .infinity)
                 .bistInteractionRegion(.drag)
                 .accessibilityLabel("Drag bist to move")
-            BistShortcutButton()
             BistButton {
                 state.toggleSettings()
             } label: {

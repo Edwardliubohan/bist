@@ -56,8 +56,6 @@ No login item, background service, scheduled job, credentials, chat transcript i
 
 ## Keyboard
 
-Click the keyboard button beside Settings in either tab for a grouped shortcut list. The same reference appears in Settings, including focus navigation and text-editing commands. Shortcuts apply while bist has keyboard focus; dismiss the reference with Done, Escape, or a click outside it.
-
 ⌘N focuses task capture. ⌘1 / ⌘2 select Tasks and Sessions. Escape returns from details or collapses the panel; a visible preview is dismissed first when bist already has keyboard focus. Tab / Shift-Tab navigate controls; Space or Return activates focused buttons. ⌘Z undoes a local task action outside text editors; text editors retain normal text undo.
 
 The tests cover atomic drag placement and ordering, cycle rejection, independent subtree moves, deletion with child preservation, subtree deletion and undo, failed move/delete writes, migration, persistence and stale writes, tree integrity, horizons and stable ordering, labels, completion timestamps and history, independent completion, session/evidence validation, reviewed inbox consumption, CLI validation, panel geometry, hover-preview timing and cancellation, and input focus policy. Native visual checks are also needed for interaction changes. No hosted CI is configured.
