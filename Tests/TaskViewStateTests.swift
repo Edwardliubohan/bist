@@ -125,6 +125,56 @@ struct TaskViewStateTests {
         expect(replacement.id != undoTask.id && replacementDraft !== unsaved && !replacementDraft.isDirty &&
                replacementDraft.title == undoTask.title && replacementDraft.notes == undoTask.notes && replacementDraft.subtaskTitle.isEmpty,
                "same-text replacement never resurrects deleted UUID's unsaved draft")
+        let orphanStore = AppStore(directory: directory.appendingPathComponent("creation-parent-deletion"))
+        expect(orphanStore.addTask(title: "Project", horizon: .longerTerm), "create parent for global capture")
+        let projectID = orphanStore.tasks[0].id
+        let capture = TaskCreationDraft()
+        capture.parentID = projectID; capture.horizon = .longerTerm
+        capture.title = "Keep typed title"; capture.details = "Keep typed details"
+        capture.labelIDs = [orphanStore.labels[0].id]; capture.agentHelpRequested = true
+        capture.detailsExpanded = true; capture.newLabelName = "Unsubmitted tag"; capture.creatingLabel = true
+        capture.requestFocus()
+        let focusBeforeDeletion = capture.focusRequest
+        expect(orphanStore.deleteTask(id: projectID), "delete selected creation parent")
+        capture.reconcileParent(tasks: orphanStore.tasks)
+        expect(capture.parentID == nil && capture.horizon == .longerTerm, "orphan global capture selects top level in its current list")
+        expect(capture.title == "Keep typed title" && capture.details == "Keep typed details" &&
+               capture.labelIDs == [orphanStore.labels[0].id] && capture.agentHelpRequested &&
+               capture.detailsExpanded && capture.newLabelName == "Unsubmitted tag" && capture.creatingLabel,
+               "deletion reconciliation preserves every creation input")
+        expect(capture.focusRequest == focusBeforeDeletion, "deletion reconciliation does not steal focus")
+        expect(orphanStore.undo(), "undo selected parent deletion")
+        capture.reconcileParent(tasks: orphanStore.tasks)
+        expect(capture.parentID == nil, "Undo does not silently change the reconciled global destination")
+        expect(capture.submit(to: orphanStore), "reconciled global capture can submit")
+        expect(orphanStore.tasks.last?.parentID == nil && orphanStore.tasks.last?.horizon == .longerTerm &&
+               orphanStore.tasks.last?.title == "Keep typed title", "submission uses the visible fallback destination")
+
+        expect(orphanStore.addTask(title: "Nested parent", parentID: projectID), "create subtree capture parent")
+        let nestedParentID = orphanStore.tasks.last!.id
+        let nestedCapture = TaskCreationDraft()
+        nestedCapture.parentID = nestedParentID; nestedCapture.horizon = .longerTerm
+        nestedCapture.title = "Subtree draft"
+        let pinnedCapture = TaskCreationDraft(parentID: nestedParentID)
+        pinnedCapture.title = "Inspector child draft"
+        expect(orphanStore.deleteTask(id: projectID, includingSubtasks: true), "delete ancestor and selected parent subtree")
+        pinnedCapture.reconcileParent(tasks: orphanStore.tasks)
+        expect(pinnedCapture.parentID == nestedParentID && pinnedCapture.title == "Inspector child draft",
+               "unmounted inspector capture remains pinned through deletion for Undo")
+        expect(nestedCapture.submit(to: orphanStore), "submit fallback works before a view reconciliation callback")
+        expect(orphanStore.tasks.last?.parentID == nil && orphanStore.tasks.last?.horizon == .longerTerm,
+               "deleted-subtree capture cannot retain an invalid parent")
+        expect(orphanStore.undo() && orphanStore.undo(), "restore subtree after undoing fallback submission")
+        pinnedCapture.reconcileParent(tasks: orphanStore.tasks)
+        expect(pinnedCapture.submit(to: orphanStore) && orphanStore.tasks.last?.parentID == nestedParentID,
+               "restored inspector capture submits under its original parent")
+        let retainedCapture = TaskCreationDraft()
+        retainedCapture.parentID = nestedParentID
+        expect(orphanStore.deleteTask(id: projectID), "delete ancestor while preserving selected child")
+        retainedCapture.reconcileParent(tasks: orphanStore.tasks)
+        expect(retainedCapture.parentID == nestedParentID && retainedCapture.horizon == .longerTerm,
+               "surviving selected parent stays attached after ancestor promotion")
+
         let creation = TaskCreationDraft()
         expect(creation.horizon == .shortTerm && !creation.agentHelpRequested && !creation.expanded,
                "creation starts minimal in short term with no agent request")

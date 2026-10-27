@@ -255,14 +255,17 @@ private struct TaskComposer: View {
             }
             .onAppear {
                 draft.reconcileLabels(available: Set(store.labels.map(\.id)))
+                draft.reconcileParent(tasks: store.tasks)
                 consumeFocus()
             }
             .onChange(of: store.labels.map(\.id)) { draft.reconcileLabels(available: Set(store.labels.map(\.id))) }
+            .onChange(of: store.tasks) { draft.reconcileParent(tasks: store.tasks) }
             .onChange(of: draft.focusRequest) { consumeFocus() }
             .onChange(of: focusContext.textDismissGeneration) { nameFocused = false }
     }
     private func submit() {
         guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        draft.reconcileParent(tasks: store.tasks)
         let parent = draft.parentID
         if draft.submit(to: store) { onCreated(parent) }
     }

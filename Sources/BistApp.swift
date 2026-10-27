@@ -417,6 +417,7 @@ struct BistView: View {
         .environmentObject(state.focusContext)
         .onAppear { syncPreviewPreferences() }
         .onChange(of: store.tasks) { _, tasks in
+            checklistViewState.creation.reconcileParent(tasks: tasks)
             let retained = Set(tasks.map(\.id))
             if let id = state.detailID, !retained.contains(id) { state.detailID = nil }
             inspectorDrafts.retainTasks(ids: retained, undoableIDs: store.undoTaskIDs)

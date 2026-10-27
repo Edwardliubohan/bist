@@ -98,6 +98,23 @@ final class TaskCreationDraft: ObservableObject {
     func reconcileLabels(available ids: Set<UUID>) {
         labelIDs = labelIDs.filter { ids.contains($0) }
     }
+    /// Global capture falls back to its current list when its chosen parent is
+    /// deleted. Inspector capture stays pinned so its draft can return via Undo.
+    func reconcileParent(tasks: [TaskItem]) {
+        if let initialParentID {
+            if let parent = tasks.first(where: { $0.id == initialParentID }) {
+                parentID = parent.id
+                horizon = parent.horizon
+            }
+            return
+        }
+        guard let parentID else { return }
+        if let parent = tasks.first(where: { $0.id == parentID }) {
+            horizon = parent.horizon
+        } else {
+            self.parentID = nil
+        }
+    }
     func cancel() {
         resetFields()
         parentID = initialParentID; horizon = .shortTerm
@@ -106,6 +123,7 @@ final class TaskCreationDraft: ObservableObject {
     }
     @MainActor
     @discardableResult func submit(to store: AppStore) -> Bool {
+        reconcileParent(tasks: store.tasks)
         guard store.addTask(title: title, details: details, labelIDs: labelIDs,
                             agentHelpRequested: agentHelpRequested, parentID: parentID, horizon: horizon) else { return false }
         resetFields()
