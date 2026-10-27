@@ -1,5 +1,56 @@
 import Foundation
 import Combine
+import Darwin
+
+/// One location for Finder launches, run.sh, bookmarks, inboxes, and panel position.
+enum BistDataLocation {
+    static func directory(demo: Bool = false, environment: [String: String] = ProcessInfo.processInfo.environment,
+                          home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        if let override = environment["BIST_DATA_DIR"] {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return home.appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent(demo ? "bist-demo" : "bist", isDirectory: true)
+    }
+
+    static func legacyDirectory(demo: Bool) -> URL {
+        let bundle = Bundle.main.bundleURL
+        let base = bundle.pathExtension == "app"
+            ? bundle.deletingLastPathComponent().deletingLastPathComponent()
+            : URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        return base.appendingPathComponent(demo ? ".demo-data" : ".local-data", isDirectory: true)
+    }
+
+    /// Publish a complete copy once; never remove the original or merge over a newer store.
+    /// The same advisory lock is used by the Python helper commands.
+    static func prepare(_ directory: URL, legacy: URL?) throws {
+        let fm = FileManager.default
+        let parent = directory.deletingLastPathComponent()
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let lockURL = parent.appendingPathComponent(".\(directory.lastPathComponent)-migration.lock")
+        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(.EACCES) }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else { throw POSIXError(.EIO) }
+        defer { flock(descriptor, LOCK_UN) }
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: directory.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else { throw CocoaError(.fileWriteFileExists) }
+            return
+        }
+        if let legacy, fm.fileExists(atPath: legacy.path) {
+            let staging = parent.appendingPathComponent(".\(directory.lastPathComponent)-migration-\(UUID())")
+            defer { try? fm.removeItem(at: staging) }
+            try fm.copyItem(at: legacy, to: staging)
+            let values = try staging.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values.isDirectory == true, values.isSymbolicLink != true else { throw CocoaError(.fileReadUnknown) }
+            try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
+            try fm.moveItem(at: staging, to: directory)
+        } else {
+            try fm.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        }
+    }
+}
 
 enum TaskLane: String, Codable, CaseIterable, Identifiable {
     case attention, next, waiting
@@ -261,14 +312,14 @@ final class AppStore: ObservableObject {
     private var undoEntries: [UndoEntry] = []
     private var blockedByUnreadableStore = false
     private let fileManager = FileManager.default
+    private let legacyDirectory: URL?
+    private let preparesDefaultDirectory: Bool
     private var snapshot: BistSnapshot { BistSnapshot(tasks: tasks, sessions: sessions, labels: labels) }
 
-    init(directory: URL? = nil, demo: Bool = false) {
-        let fallback = ProcessInfo.processInfo.environment["BIST_DATA_DIR"]
-            .map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent(".local-data", isDirectory: true)
-        self.directory = directory ?? fallback
+    init(directory: URL? = nil, demo: Bool = false, legacyDirectory: URL? = nil) {
+        self.directory = directory ?? BistDataLocation.directory(demo: demo)
+        preparesDefaultDirectory = legacyDirectory != nil || (directory == nil && ProcessInfo.processInfo.environment["BIST_DATA_DIR"] == nil)
+        self.legacyDirectory = legacyDirectory ?? (preparesDefaultDirectory ? BistDataLocation.legacyDirectory(demo: demo) : nil)
         _ = reload()
         if demo && !fileManager.fileExists(atPath: stateURL.path) && !blockedByUnreadableStore {
             _ = loadSamples()
@@ -278,10 +329,31 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// Auxiliary files must not create an empty destination after migration failed.
+    func prepareForAuxiliaryWrite() -> Bool {
+        guard !blockedByUnreadableStore else { return false }
+        do {
+            if preparesDefaultDirectory { try BistDataLocation.prepare(directory, legacy: legacyDirectory) }
+            else { try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]) }
+            return true
+        } catch {
+            storeError = "Couldn’t save the panel position. Check local folder access."
+            return false
+        }
+    }
+
     /// Explicit reload, for an approved local file update. No watcher or background
     /// sync is installed. An invalid file is preserved and blocks further writes.
     @discardableResult
     func reload() -> Bool {
+        if preparesDefaultDirectory {
+            do { try BistDataLocation.prepare(directory, legacy: legacyDirectory) }
+            catch {
+                blockedByUnreadableStore = true
+                storeError = "Couldn’t prepare local storage at \(directory.path). Existing files are unchanged. Check folder access, then reload."
+                return false
+            }
+        }
         guard fileManager.fileExists(atPath: stateURL.path) else {
             tasks = []; sessions = []; labels = TaskLabel.defaults
             blockedByUnreadableStore = false

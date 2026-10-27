@@ -13,9 +13,9 @@ python3 scripts/bist-propose.py \
   --source "Local draft review"
 ```
 
-This writes a proposal to `.local-data/inbox.json`. In bist, choose **Review local updates**, inspect the proposal, and add it if wanted. Generating a proposal does not mark an external commitment complete and does not control any agent.
+This writes a proposal to `~/Library/Application Support/bist/inbox.json`. In bist, choose **Review local updates**, inspect the proposal, and add it if wanted. Generating a proposal does not mark an external commitment complete and does not control any agent.
 
-Use `--data-dir /absolute/path` or `BIST_DATA_DIR` to target the same data folder used by the app. Regular mode uses `.local-data/`, while `./run.sh --demo` uses `.demo-data/`. To propose a sample for demo mode, add `--data-dir .demo-data` to the command above.
+Use `--data-dir /absolute/path` or `BIST_DATA_DIR` to target the same data folder used by the app. Regular mode uses `~/Library/Application Support/bist/`, while `./run.sh --demo` uses `~/Library/Application Support/bist-demo/`. To propose a sample for demo mode, add `--data-dir "$HOME/Library/Application Support/bist-demo"` to the command above.
 
 ## File contract
 

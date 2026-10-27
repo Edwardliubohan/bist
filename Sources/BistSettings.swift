@@ -64,6 +64,12 @@ struct BistSettingsView: View {
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         heading("Local data")
+                        note("Saved tasks, tags and session links survive quitting and reopening bist.")
+                        Text(store.directory.path).font(.system(size: 10)).foregroundColor(muted)
+                            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        settingsAction("Show data folder", symbol: "folder") {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: store.directory.path)
+                        }
                         settingsAction("Reload task file", symbol: "arrow.clockwise") { _ = store.reload() }
                         settingsAction("Review local updates", symbol: "tray", action: reviewUpdates)
                         settingsAction("Review agent results", symbol: "checkmark.seal", action: reviewResults)
