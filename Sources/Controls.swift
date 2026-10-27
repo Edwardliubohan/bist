@@ -252,11 +252,10 @@ extension View {
     }
 }
 
-/// A caret blinks; the outline keeps the active editing surface identifiable
-/// between blinks. Share an existing binding where a caller requests focus.
+/// Keep native text focus and a high-contrast insertion caret without adding
+/// decoration to the editing surface. Reuse bindings for requested focus.
 private struct BistTextEntryFocus: ViewModifier {
     @EnvironmentObject private var focusContext: BistFocusContext
-    @Environment(\.controlActiveState) private var activeState
     @FocusState private var localFocus: Bool
     var externalFocus: FocusState<Bool>.Binding?
     private var focus: FocusState<Bool>.Binding { externalFocus ?? $localFocus }
@@ -266,14 +265,6 @@ private struct BistTextEntryFocus: ViewModifier {
             .focused(focus)
             .tint(ink)
             .bistInteractionRegion(.text)
-            .overlay {
-                if focus.wrappedValue && activeState != .inactive {
-                    RoundedRectangle(cornerRadius: 4)
-                        .inset(by: -2)
-                        .strokeBorder(accent.opacity(0.7), lineWidth: 1)
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-            }
             .onChange(of: focusContext.textDismissGeneration) { focus.wrappedValue = false }
     }
 }
