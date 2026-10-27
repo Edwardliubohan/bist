@@ -81,6 +81,27 @@ final class PanelState: ObservableObject {
 final class FloatingPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func becomeKey() {
+        super.becomeKey()
+        refreshTextInsertionPoint()
+        // Activation can complete after the mouse event has assigned its editor.
+        // Re-read the current responder; never restore an earlier field or range.
+        DispatchQueue.main.async { [weak self] in self?.refreshTextInsertionPoint() }
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        super.sendEvent(event)
+        if event.type == .leftMouseDown { refreshTextInsertionPoint() }
+    }
+
+    func refreshTextInsertionPoint() {
+        guard isKeyWindow, let editor = firstResponder as? NSTextView,
+              editor.window === self, editor.isEditable, editor.shouldDrawInsertionPoint,
+              editor.selectedRange().length == 0, !editor.hasMarkedText() else { return }
+        editor.insertionPointColor = NSColor(accent)
+        editor.updateInsertionPointStateAndRestartTimer(true)
+    }
 }
 
 @MainActor
@@ -198,6 +219,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.focusContext.dismissTextEntry()
         panel.makeFirstResponder(nil)
     }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        panel?.refreshTextInsertionPoint()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = ProcessInfo.processInfo.arguments
         store = AppStore(demo: args.contains("--demo"))

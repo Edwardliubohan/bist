@@ -32,3 +32,6 @@ build/tests/note-store
 
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/TextEntryFocusTests.swift -o build/tests/text-entry-focus
 build/tests/text-entry-focus
+
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/NativeCaretTests.swift -o build/tests/native-caret
+build/tests/native-caret

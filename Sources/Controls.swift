@@ -263,7 +263,7 @@ private struct BistTextEntryFocus: ViewModifier {
     func body(content: Content) -> some View {
         content
             .focused(focus)
-            .tint(ink)
+            .tint(accent)
             .bistInteractionRegion(.text)
             .onChange(of: focusContext.textDismissGeneration) { focus.wrappedValue = false }
     }
