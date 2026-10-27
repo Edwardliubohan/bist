@@ -117,13 +117,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func updateDraggedFrame(_ origin: CGPoint, pointer: CGPoint) {
         guard let screen = screen(for: pointer) else { return }
         let frame = CornerLayout.pixelAligned(CornerLayout.dragFrame(expanded: draggingExpanded, origin: origin, visibleFrame: screen.visibleFrame), scale: screen.backingScaleFactor)
+        applyDraggedFrame(frame, visibleFrame: screen.visibleFrame)
+    }
+
+    func applyDraggedFrame(_ frame: CGRect, visibleFrame: CGRect) {
         if draggingExpanded { state.openSize = frame.size }
-        panel.setFrame(frame, display: true)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        panel.setFrame(frame, display: false)
+        let bounds = CGRect(origin: .zero, size: frame.size)
+        let contentSize = draggingExpanded ? frame.size : state.openSize
+        if let surface, surface.presentationRect != bounds || surface.contentSize != contentSize {
+            surface.frame = bounds
+            surface.settle(rect: bounds, contentSize: contentSize)
+        }
+        CATransaction.commit()
         compactOrigin = draggingExpanded
             ? CGPoint(x: frame.maxX - CornerLayout.compactSize.width, y: frame.maxY - CornerLayout.compactSize.height)
             : frame.origin
-        let anchor = CornerLayout.frame(expanded: false, visibleFrame: screen.visibleFrame, compactOrigin: compactOrigin!)
-        preview.reposition(anchor: anchor, visibleFrame: screen.visibleFrame)
+        let anchor = CornerLayout.frame(expanded: false, visibleFrame: visibleFrame, compactOrigin: compactOrigin!)
+        preview.reposition(anchor: anchor, visibleFrame: visibleFrame)
     }
 
     func handleCompactPointer(_ event: NSEvent) -> Bool {

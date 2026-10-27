@@ -136,6 +136,19 @@ struct PanelLifecycleTests {
         expect(delegate.panel.frame.size == CornerLayout.compactSize, "Drag cannot leave a large invisible hit window")
         expect(FileManager.default.fileExists(atPath: delegate.positionURL.path), "Drag persists only in isolated data")
 
+        // Moving onto a smaller display changes native geometry during a drag.
+        set(true, animated: false)
+        delegate.draggingExpanded = true
+        let smallerScreen = CGRect(x: bounds.minX + 100, y: bounds.minY + 100, width: 500, height: 360)
+        let resized = CornerLayout.dragFrame(expanded: true, origin: smallerScreen.origin, visibleFrame: smallerScreen)
+        delegate.applyDraggedFrame(resized, visibleFrame: smallerScreen)
+        expect(delegate.panel.frame == resized && delegate.state.openSize == resized.size, "Cross-screen drag adopts the smaller native frame")
+        expect(host.frame.size == resized.size && surface.contentSize == resized.size, "Cross-screen drag relayouts the fixed content at its new final size")
+        expect(surface.presentationRect == surface.bounds, "Cross-screen drag updates mask and hit-testing bounds")
+        let resizedMark = delegate.panel.convertPoint(toScreen: host.convert(CGPoint(x: host.bounds.maxX - 24, y: host.isFlipped ? 24 : host.bounds.maxY - 24), to: nil))
+        expect(resizedMark == CGPoint(x: resized.maxX - 24, y: resized.maxY - 24), "Mark remains visible at the resized panel corner")
+        delegate.draggingExpanded = false
+
         // Fractional drag coordinates must be normalized BEFORE opening. Check
         // the actual native hosting-view center, not just the abstract rectangle.
         delegate.compactOrigin = CGPoint(x: bounds.maxX - 96.23828125, y: bounds.maxY - 260.9296875)

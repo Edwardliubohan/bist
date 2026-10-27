@@ -38,6 +38,26 @@ struct LocalSessionTests {
         precondition(output == session.directory && process.terminationStatus == 0, "Shell metacharacters stay literal")
         precondition(command.contains("'resume' '\(id.uuidString.lowercased())'"))
         precondition(LocalSessionConnection.resumeCommand(scan.sessions.first { $0.provider == .claudeCode }!, executable: "/tmp/claude").contains("'--resume'"))
+        // Execute the actual generated command against a harmless fake CLI,
+        // starting with Terminal-like configuration that points elsewhere.
+        let workspace = home.appendingPathComponent("workspace ' with spaces")
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        for (provider, key) in [(SessionProvider.codex, "CODEX_HOME"), (.claudeCode, "CLAUDE_CONFIG_DIR")] {
+            let fake = home.appendingPathComponent("fake-\(provider.rawValue)")
+            let script = "#!/bin/sh\nprintf '%s\\n' \"$\(key)\" \"$@\"\n"
+            try script.write(to: fake, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+            var selected = override.sessions.first { $0.provider == provider }!
+            selected = LocalAgentSession(provider: selected.provider, sessionID: selected.sessionID, directory: workspace.path, modifiedAt: selected.modifiedAt, configurationDirectory: selected.configurationDirectory)
+            let run = Process(); run.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            run.arguments = ["-c", LocalSessionConnection.resumeCommand(selected, executable: fake.path)]
+            run.environment = ["PATH": "/usr/bin:/bin", key: "/wrong-terminal-root"]
+            let outputPipe = Pipe(); run.standardOutput = outputPipe
+            try run.run(); run.waitUntilExit()
+            let lines = String(decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).split(separator: "\n").map(String.init)
+            precondition(run.terminationStatus == 0 && lines.first == selected.configurationDirectory, "Resume preserves the discovered provider configuration")
+            precondition(Array(lines.dropFirst()) == [provider == .codex ? "resume" : "--resume", selected.sessionID.uuidString.lowercased()], "The selected session is resumed without an implicit prompt")
+        }
         let live = LocalSessionScan.read()
         print("PASS: local session parsing, custom roots, invalid files, shell quoting, resume arguments; live discovery: \(live.sessions.filter { $0.provider == .codex }.count) Codex, \(live.sessions.filter { $0.provider == .claudeCode }.count) Claude")
     }

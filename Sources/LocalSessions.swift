@@ -7,6 +7,7 @@ struct LocalAgentSession: Identifiable, Equatable {
     let sessionID: UUID
     let directory: String
     let modifiedAt: Date
+    var configurationDirectory: String? = nil
     var id: String { "\(provider.rawValue):\(sessionID.uuidString)" }
     var title: String { URL(fileURLWithPath: directory).lastPathComponent }
     var shortID: String { "\(sessionID.uuidString.prefix(8).lowercased())…\(sessionID.uuidString.suffix(4).lowercased())" }
@@ -41,7 +42,7 @@ struct LocalSessionScan {
             }
             var seen = Set<UUID>()
             for (file, modified) in files.sorted(by: { $0.1 > $1.1 }).prefix(100) {
-                guard let session = parse(file: file, provider: provider, modified: modified), seen.insert(session.sessionID).inserted else { continue }
+                guard let session = parse(file: file, provider: provider, modified: modified, configurationDirectory: root.deletingLastPathComponent().path), seen.insert(session.sessionID).inserted else { continue }
                 result.sessions.append(session)
                 if seen.count == 30 { break }
             }
@@ -51,7 +52,7 @@ struct LocalSessionScan {
         return result
     }
 
-    static func parse(file: URL, provider: SessionProvider, modified: Date) -> LocalAgentSession? {
+    static func parse(file: URL, provider: SessionProvider, modified: Date, configurationDirectory: String? = nil) -> LocalAgentSession? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
         // Bounded prefix; ignore a partial final record and unknown formats.
@@ -68,7 +69,7 @@ struct LocalSessionScan {
             }
             guard let raw = (metadata["sessionId"] ?? metadata["id"]) as? String, let id = UUID(uuidString: raw),
                   let cwd = metadata["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("t3code-claude-title-") else { continue }
-            return LocalAgentSession(provider: provider, sessionID: id, directory: cwd, modifiedAt: modified)
+            return LocalAgentSession(provider: provider, sessionID: id, directory: cwd, modifiedAt: modified, configurationDirectory: configurationDirectory)
         }
         return nil
     }
@@ -94,7 +95,12 @@ final class LocalSessionConnection: ObservableObject {
 
     static func resumeCommand(_ session: LocalAgentSession, executable: String) -> String {
         let arguments = session.provider == .codex ? ["resume", session.sessionID.uuidString.lowercased()] : ["--resume", session.sessionID.uuidString.lowercased()]
-        return "cd -- \(shellQuote(session.directory)) && \(([executable] + arguments).map(shellQuote).joined(separator: " "))"
+        var invocation = [executable] + arguments
+        if let configurationDirectory = session.configurationDirectory {
+            let key = session.provider == .codex ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"
+            invocation = ["/usr/bin/env", "\(key)=\(configurationDirectory)"] + invocation
+        }
+        return "cd -- \(shellQuote(session.directory)) && \(invocation.map(shellQuote).joined(separator: " "))"
     }
 
     func resume(_ session: LocalAgentSession) {
