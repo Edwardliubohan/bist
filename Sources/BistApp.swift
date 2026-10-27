@@ -108,9 +108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func savePosition() {
-        guard let origin = compactOrigin,
+        guard store != nil, store.prepareForAuxiliaryWrite(), let origin = compactOrigin,
               let data = try? JSONEncoder().encode([Double(origin.x), Double(origin.y)]) else { return }
-        try? FileManager.default.createDirectory(at: positionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: positionURL, options: .atomic)
     }
 
@@ -201,16 +200,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = ProcessInfo.processInfo.arguments
-        let executable = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-        let base = executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let directory = ProcessInfo.processInfo.environment["BIST_DATA_DIR"].map { URL(fileURLWithPath: $0) } ?? base.appendingPathComponent(args.contains("--demo") ? ".demo-data" : ".local-data")
+        store = AppStore(demo: args.contains("--demo"))
+        let directory = store.directory
         positionURL = directory.appendingPathComponent("panel-position.json")
         if let data = try? Data(contentsOf: positionURL),
            let values = try? JSONDecoder().decode([Double].self, from: data),
            values.count == 2, values.allSatisfy({ $0.isFinite }) {
             compactOrigin = CGPoint(x: values[0], y: values[1])
         }
-        store = AppStore(directory: directory, demo: args.contains("--demo"))
         preview = PreviewPanelController(store: store)
         state.hoverChanged = { [weak self] inside in self?.preview.cornerHoverChanged(inside) }
         state.syncPreviewPreferences = { [weak self] motion in

@@ -23,3 +23,6 @@ xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Source
 build/tests/local-sessions
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/SessionBrowserTests.swift -o build/tests/session-browser
 build/tests/session-browser
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/PersistenceTests.swift -o build/tests/persistence
+build/tests/persistence
+python3 scripts/test-data-location.py

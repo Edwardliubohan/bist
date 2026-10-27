@@ -29,7 +29,7 @@ python3 scripts/bist-result.py \
   --observed-at 2026-10-26T12:00:00Z
 ```
 
-The IDs and URL above are examples. Use the actual IDs of the task and saved session you intend to link. The command writes only to `.local-data/agent-results.json`; it sends nothing to an agent or website. Use `--data-dir /absolute/path` or `BIST_DATA_DIR` for another local store, including `.demo-data` for an isolated demo.
+The IDs and URL above are examples. Use the actual IDs of the task and saved session you intend to link. The command writes only to `~/Library/Application Support/bist/agent-results.json`; it sends nothing to an agent or website. Use `--data-dir /absolute/path` or `BIST_DATA_DIR` for another local store, including `~/Library/Application Support/bist-demo` for an isolated demo.
 
 Pass `--id UUID` when retrying the same result, so the proposal keeps a stable identity. Accepted results are consumed only while their full queued content still matches what was reviewed. A retry does not create a second completion or overwrite the reviewed output. Reloading the review screen clears the review checkboxes, so changed output cannot inherit an earlier review.
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Queue one agent output for explicit review in bist. No agent access or sync."""
 
+from bist_data import default_directory, prepare_default
+
 import argparse
 import datetime as dt
 import fcntl
@@ -120,7 +122,7 @@ def main():
     parser.add_argument("--summary", required=True, help="Nonblank output description (max 2,000 characters)")
     parser.add_argument("--observed-at", required=True, help="Explicit ISO 8601 observation time with timezone")
     parser.add_argument("--id", help="Stable result UUID for safe retries; defaults to a new UUID")
-    parser.add_argument("--data-dir", type=Path, default=Path(os.environ.get("BIST_DATA_DIR", Path(__file__).resolve().parents[1] / ".local-data")))
+    parser.add_argument("--data-dir", type=Path, default=None)
     args = parser.parse_args()
     now = dt.datetime.now(UTC)
     item = {
@@ -132,6 +134,10 @@ def main():
         "observedAt": observation(args.observed_at, now).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     validate({"version": 1, "results": [item]}, now)
+    if args.data_dir is None:
+        args.data_dir = default_directory()
+        if "BIST_DATA_DIR" not in os.environ:
+            prepare_default(args.data_dir)
     args.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     inbox = args.data_dir / "agent-results.json"
     lock_path = args.data_dir / ".agent-results.lock"

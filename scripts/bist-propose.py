@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Append a proposal for explicit in-app review. No running sync or external access."""
 
+from bist_data import default_directory, prepare_default
+
 import argparse
 import datetime as dt
 import fcntl
@@ -49,7 +51,7 @@ def main():
     parser.add_argument("--title", required=True, help="Proposed task title (max 200 characters)")
     parser.add_argument("--next-action", default="", help="Optional next action (max 600 characters)")
     parser.add_argument("--source", default="Local proposal", help="Human-readable source (max 160 characters)")
-    parser.add_argument("--data-dir", type=Path, default=Path(os.environ.get("BIST_DATA_DIR", Path(__file__).resolve().parents[1] / ".local-data")))
+    parser.add_argument("--data-dir", type=Path, default=None)
     args = parser.parse_args()
     item = {
         "id": str(uuid.uuid4()),
@@ -59,6 +61,10 @@ def main():
         "createdAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     validate({"version": 1, "proposals": [item]})
+    if args.data_dir is None:
+        args.data_dir = default_directory()
+        if "BIST_DATA_DIR" not in os.environ:
+            prepare_default(args.data_dir)
     args.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     inbox = args.data_dir / "inbox.json"
     lock_path = args.data_dir / ".inbox.lock"
