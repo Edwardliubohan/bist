@@ -281,6 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case "a": if let editor = self.panel.firstResponder as? NSText { editor.selectAll(nil); return nil }
                 case "1": self.state.selectTab(0); self.state.setExpanded(true, animated: false); return nil
                 case "2": self.state.selectTab(1); self.state.setExpanded(true, animated: false); return nil
+                case "3": self.state.selectTab(2); self.state.setExpanded(true, animated: false); return nil
                 case "z":
                     if !(self.panel.firstResponder is NSTextView) { _ = self.store.undo(); return nil }
                 case "q": NSApp.terminate(nil); return nil
@@ -450,6 +451,13 @@ struct BistView: View {
     @StateObject private var inspectorDrafts = TaskInspectorDrafts()
     @StateObject private var localSessions = LocalSessionConnection()
     @StateObject private var sessionBrowser = SessionBrowserState()
+    @StateObject private var note: NoteStore
+    init(store: AppStore, state: PanelState, directory: URL) {
+        self.store = store
+        self.state = state
+        self.directory = directory
+        _note = StateObject(wrappedValue: NoteStore(directory: directory, prepareForWrite: store.prepareForAuxiliaryWrite))
+    }
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var active: [TaskItem] { store.tasks.filter { !$0.completed } }
@@ -515,7 +523,7 @@ struct BistView: View {
         .background(CornerHoverRegion(onHover: state.setHovered)
             .frame(width: CornerLayout.compactHitSize.width, height: CornerLayout.compactHitSize.height))
         .accessibilityLabel(state.expanded ? "Collapse bist" : "Open bist, \(active.count) task\(active.count == 1 ? "" : "s")")
-        .accessibilityHint(state.expanded ? "Click to collapse to the corner control." : "Click to open Tasks and Sessions. Drag to move bist. Hover briefly to preview outstanding tasks.")
+        .accessibilityHint(state.expanded ? "Click to collapse to the corner control." : "Click to open Tasks, Sessions, and Note. Drag to move bist. Hover briefly to preview outstanding tasks.")
         .animation(reduceMotion || state.reduced ? nil : .easeOut(duration: 0.16), value: state.cornerHighlighted)
     }
     var expanded: some View {
@@ -546,8 +554,10 @@ struct BistView: View {
                 ZStack {
                     if state.selectedTab == 0 {
                         taskContent.transition(reduceMotion || state.reduced ? .opacity : .asymmetric(insertion: .offset(x: -12).combined(with: .opacity), removal: .offset(x: -12).combined(with: .opacity)))
-                    } else {
+                    } else if state.selectedTab == 1 {
                         sessionContent.transition(reduceMotion || state.reduced ? .opacity : .asymmetric(insertion: .offset(x: 12).combined(with: .opacity), removal: .offset(x: 12).combined(with: .opacity)))
+                    } else {
+                        NotePane(note: note).transition(editorTransition)
                     }
                 }.transition(reduceMotion || state.reduced ? .opacity : .offset(x: -18).combined(with: .opacity))
             }
@@ -592,6 +602,7 @@ struct BistView: View {
         HStack(spacing: 3) {
             tab("Tasks", number: active.count, index: 0)
             tab("Sessions", number: 0, index: 1)
+            tab("Note", number: 0, index: 2)
         }
     }
     func tab(_ title: String, number: Int, index: Int) -> some View {
@@ -602,7 +613,7 @@ struct BistView: View {
             }.foregroundColor(state.selectedTab == index ? ink : muted).padding(.horizontal, 5).frame(height: 34)
                 .overlay(alignment: .bottom) { Rectangle().fill(state.selectedTab == index ? ink : .clear).frame(height: 1) }
                 .contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityAddTraits(state.selectedTab == index ? .isSelected : []).help(index == 0 ? "Tasks · ⌘1" : "Sessions · ⌘2")
+        }.buttonStyle(.plain).accessibilityAddTraits(state.selectedTab == index ? .isSelected : []).help("\(title) · ⌘\(index + 1)")
     }
     var taskContent: some View {
         ChecklistPane(store: store, openTask: { state.detailID = $0 }, focusRequest: state.focusAddToken, reducedMotion: reduceMotion || state.reduced, viewState: checklistViewState)

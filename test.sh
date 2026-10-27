@@ -26,3 +26,6 @@ build/tests/session-browser
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/PersistenceTests.swift -o build/tests/persistence
 build/tests/persistence
 python3 scripts/test-data-location.py
+
+xcrun swiftc -module-cache-path "$PWD/build/module-cache" Sources/BistCore.swift Sources/LocalInbox.swift Sources/NoteStore.swift Tests/NoteStoreTests.swift -o build/tests/note-store
+build/tests/note-store

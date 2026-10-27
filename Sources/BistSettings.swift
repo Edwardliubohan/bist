@@ -57,14 +57,14 @@ struct BistSettingsView: View {
                     VStack(alignment: .leading, spacing: 9) {
                         heading("Keyboard")
                         shortcut("New task", "⌘N")
-                        shortcut("Tasks / Sessions", "⌘1 / ⌘2")
+                        shortcut("Tasks / Sessions / Note", "⌘1 / ⌘2 / ⌘3")
                         shortcut("Settings", "⌘,")
                         shortcut("Undo task change", "⌘Z")
                         shortcut("Go back / collapse", "Esc")
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         heading("Local data")
-                        note("Saved tasks, tags and session links survive quitting and reopening bist.")
+                        note("Saved tasks, tags, session links and your note survive quitting and reopening bist.")
                         Text(store.directory.path).font(.system(size: 10)).foregroundColor(muted)
                             .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         settingsAction("Show data folder", symbol: "folder") {
