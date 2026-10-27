@@ -13,9 +13,9 @@ struct SessionBrowserTests {
         let oldestID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let latestID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         let sessions = [
-            LocalAgentSession(provider: .codex, sessionID: oldestID, directory: "/Users/example/Projects/bist", modifiedAt: now.addingTimeInterval(-3600)),
-            LocalAgentSession(provider: .claudeCode, sessionID: latestID, directory: "/Users/example/Projects/bist", modifiedAt: now),
-            LocalAgentSession(provider: .codex, sessionID: UUID(), directory: "/Users/example/Archive/bist", modifiedAt: now.addingTimeInterval(-600)),
+            LocalAgentSession(provider: .codex, sessionID: oldestID, directory: "/Users/example/Projects/bist", modifiedAt: now.addingTimeInterval(-3600), name: "Inbox layout", activity: "Checked the compact row spacing", preview: "The sessions inbox now uses one compact line per session.\n\nAll checks passed; ready for your review."),
+            LocalAgentSession(provider: .claudeCode, sessionID: latestID, directory: "/Users/example/Projects/bist", modifiedAt: now, name: "Native caret", activity: "Checking focus after activation", preview: "I’m checking keyboard focus and the native insertion caret after the panel opens."),
+            LocalAgentSession(provider: .codex, sessionID: UUID(), directory: "/Users/example/Archive/bist", modifiedAt: now.addingTimeInterval(-600), name: "Task sorting", activity: "Reorder tests passed"),
             LocalAgentSession(provider: .claudeCode, sessionID: UUID(), directory: "/Users/example/Projects/A very long workspace name for a research project", modifiedAt: now.addingTimeInterval(-900)),
             LocalAgentSession(provider: .codex, sessionID: UUID(), directory: "/", modifiedAt: now.addingTimeInterval(-7200))
         ]
@@ -77,10 +77,20 @@ struct SessionBrowserTests {
             host.cacheDisplay(in: host.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: "build/tests/sessions-\(name).png"))
         }
+        connection.running = [sessions[1].id]
+        connection.managedSessions[sessions[1].id] = sessions[1]
         browser.collection = .recent; browser.expandedWorkspaces = []
         try capture("recent")
         browser.toggle(sessions[0].directory)
         try capture("expanded")
+        browser.read(sessions[0])
+        browser.collection = .archived
+        try capture("archive")
+        browser.collection = .recent
+        browser.selectedID = sessions[1].id
+        browser.drafts[sessions[1].id] = "Please check the inbox layout."
+        try capture("reply")
+        browser.selectedID = nil
         browser.query = "22222222"
         try capture("search")
         browser.query = "No such workspace"

@@ -1,15 +1,18 @@
 import AppKit
 import SwiftUI
 
-/// Local metadata only: never copies messages, credentials, or completion claims.
+/// Bounded local metadata and text previews. No credentials or transcript copies.
 struct LocalAgentSession: Identifiable, Equatable {
     let provider: SessionProvider
     let sessionID: UUID
     let directory: String
     let modifiedAt: Date
     var configurationDirectory: String? = nil
+    var name: String? = nil
+    var activity: String = "Activity saved"
+    var preview: String = ""
     var id: String { "\(provider.rawValue):\(sessionID.uuidString)" }
-    var title: String { URL(fileURLWithPath: directory).lastPathComponent }
+    var title: String { name ?? (directory == "/" ? "Root folder" : URL(fileURLWithPath: directory).lastPathComponent) }
     var shortID: String { "\(sessionID.uuidString.prefix(8).lowercased())…\(sessionID.uuidString.suffix(4).lowercased())" }
 }
 
@@ -69,7 +72,42 @@ struct LocalSessionScan {
             }
             guard let raw = (metadata["sessionId"] ?? metadata["id"]) as? String, let id = UUID(uuidString: raw),
                   let cwd = metadata["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("t3code-claude-title-") else { continue }
-            return LocalAgentSession(provider: provider, sessionID: id, directory: cwd, modifiedAt: modified, configurationDirectory: configurationDirectory)
+            var session = LocalAgentSession(provider: provider, sessionID: id, directory: cwd, modifiedAt: modified, configurationDirectory: configurationDirectory)
+            session.name = (metadata["title"] as? String).map { String($0.prefix(100)) }
+            // Read only a bounded tail; discard an incomplete leading record.
+            let size = (try? handle.seekToEnd()) ?? 0
+            let start = size > 65_536 ? size - 65_536 : 0
+            try? handle.seek(toOffset: start)
+            let tail = (try? handle.read(upToCount: 65_536)) ?? Data()
+            var lines = String(decoding: tail, as: UTF8.self).components(separatedBy: "\n")
+            if start > 0 && !lines.isEmpty { lines.removeFirst() }
+            let prefixLines = text.components(separatedBy: "\n").prefix(40)
+            for record in Array(prefixLines) + lines {
+                guard let entry = try? JSONSerialization.jsonObject(with: Data(record.utf8)) as? [String: Any] else { continue }
+                if let title = entry["customTitle"] as? String { session.name = String(title.prefix(100)) }
+                let payload = entry["payload"] as? [String: Any] ?? entry
+                let type = payload["type"] as? String ?? ""
+                let message = entry["message"] as? [String: Any] ?? payload
+                let role = message["role"] as? String ?? entry["type"] as? String
+                let blocks = message["content"] as? [[String: Any]] ?? []
+                let body = (message["content"] as? String) ?? blocks.compactMap { $0["text"] as? String }.joined(separator: " ")
+                if (role == "user" || type == "user_message"), session.name == nil {
+                    let prompt = payload["message"] as? String ?? body
+                    if !prompt.isEmpty && !prompt.hasPrefix("<") && !prompt.hasPrefix("#") {
+                        session.name = String(prompt.split(whereSeparator: \.isNewline).first.map(String.init)?.prefix(80) ?? "".prefix(80))
+                    }
+                }
+                if role == "assistant" || type == "agent_message" {
+                    let value = payload["message"] as? String ?? body
+                    if !value.isEmpty {
+                        session.preview = String(value.prefix(4000))
+                        session.activity = String(value.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(160))
+                    }
+                }
+                if type == "function_call", let tool = payload["name"] as? String { session.activity = "Using \(tool)" }
+                if let tool = blocks.last(where: { $0["type"] as? String == "tool_use" })?["name"] as? String { session.activity = "Using \(tool)" }
+            }
+            return session
         }
         return nil
     }
@@ -80,6 +118,9 @@ final class LocalSessionConnection: ObservableObject {
     @Published private(set) var scan = LocalSessionScan()
     @Published private(set) var refreshing = false
     @Published var error: String?
+    @Published var running = Set<String>()
+    @Published var replies: [String: SessionReply] = [:]
+    @Published var managedSessions: [String: LocalAgentSession] = [:]
 
     init(scan: LocalSessionScan = LocalSessionScan()) { self.scan = scan }
 
