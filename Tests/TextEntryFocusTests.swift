@@ -67,8 +67,8 @@ private struct EntryHarness: View {
             let views = textViews(host)
             expect(!views.isEmpty, "Real SwiftUI text entry has a native backing editor")
             let color = views[0].insertionPointColor.usingColorSpace(.sRGB)!
-            expect(abs(color.redComponent - 0.16) < 0.01 && abs(color.greenComponent - 0.12) < 0.01 && abs(color.blueComponent - 0.09) < 0.01,
-                   "Caret uses dark ink rather than the inherited accent")
+            expect(abs(color.redComponent - 0.64) < 0.01 && abs(color.greenComponent - 0.24) < 0.01 && abs(color.blueComponent - 0.055) < 0.01,
+                   "Caret matches the app burnt-orange accent")
             expect(!hasOutline(capture()), "Focused inputs retain the borderless appearance without a highlighted box")
             context.dismissTextEntry(); pump()
             expect(!state.focused, "Click-away/collapse dismissal clears the entry's SwiftUI focus")
