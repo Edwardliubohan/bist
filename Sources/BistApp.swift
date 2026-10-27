@@ -481,6 +481,7 @@ struct BistView: View {
         self.store = store
         self.state = state
         self.directory = directory
+        _sessionBrowser = StateObject(wrappedValue: SessionBrowserState(directory: directory, prepareForWrite: store.prepareForAuxiliaryWrite))
         _note = StateObject(wrappedValue: NoteStore(directory: directory, prepareForWrite: store.prepareForAuxiliaryWrite))
     }
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency

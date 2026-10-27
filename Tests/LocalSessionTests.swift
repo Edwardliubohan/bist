@@ -58,6 +58,19 @@ struct LocalSessionTests {
             precondition(run.terminationStatus == 0 && lines.first == selected.configurationDirectory, "Resume preserves the discovered provider configuration")
             precondition(Array(lines.dropFirst()) == [provider == .codex ? "resume" : "--resume", selected.sessionID.uuidString.lowercased()], "The selected session is resumed without an implicit prompt")
         }
+        let previewFile = home.appendingPathComponent("preview.jsonl")
+        let previewRecords: [[String: Any]] = [
+            ["type": "session_meta", "payload": ["id": id.uuidString, "cwd": "/tmp/project"]],
+            ["type": "event_msg", "payload": ["type": "user_message", "message": "Make the inbox compact"]],
+            ["type": "event_msg", "payload": ["type": "agent_message", "message": "I’m checking the row spacing."]],
+            ["type": "response_item", "payload": ["type": "function_call", "name": "exec_command"]]
+        ]
+        let previewData = try previewRecords.map { try JSONSerialization.data(withJSONObject: $0) }.reduce(into: Data()) { $0.append($1); $0.append(10) }
+        try previewData.write(to: previewFile)
+        let parsed = LocalSessionScan.parse(file: previewFile, provider: .codex, modified: Date())!
+        precondition(parsed.title == "Make the inbox compact" && parsed.preview == "I’m checking the row spacing." && parsed.activity == "Using exec_command", "Name, assistant preview and tool activity extracted from bounded records")
+        try Data((String(decoding: previewData, as: UTF8.self) + String(repeating: "x", count: 80_000) + "\n" + "{\"type\":\"event_msg\",\"payload\":{\"type\":\"agent_message\",\"message\":\"Latest reply\"}}\n").utf8).write(to: previewFile)
+        precondition(LocalSessionScan.parse(file: previewFile, provider: .codex, modified: Date())?.preview == "Latest reply", "Bounded tail discards a partial first line and reads latest reply")
         let live = LocalSessionScan.read()
         print("PASS: local session parsing, custom roots, invalid files, shell quoting, resume arguments; live discovery: \(live.sessions.filter { $0.provider == .codex }.count) Codex, \(live.sessions.filter { $0.provider == .claudeCode }.count) Claude")
     }
