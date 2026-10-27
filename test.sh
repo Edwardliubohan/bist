@@ -15,6 +15,8 @@ build/tests/agent-results
 xcrun swiftc -module-cache-path "$PWD/build/module-cache" Sources/BistCore.swift Sources/LocalInbox.swift Sources/TaskViewState.swift Tests/TaskViewStateTests.swift -o build/tests/task-view-state
 build/tests/task-view-state
 python3 scripts/test-logo.py
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/CornerHoverTests.swift -o build/tests/corner-hover
+build/tests/corner-hover
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/PanelLifecycleTests.swift -o build/tests/panel-lifecycle
 build/tests/panel-lifecycle
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/LocalSessionTests.swift -o build/tests/local-sessions
