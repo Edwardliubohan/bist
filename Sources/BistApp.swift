@@ -456,7 +456,7 @@ struct BistView: View {
         self.store = store
         self.state = state
         self.directory = directory
-        _note = StateObject(wrappedValue: NoteStore(directory: directory))
+        _note = StateObject(wrappedValue: NoteStore(directory: directory, prepareForWrite: store.prepareForAuxiliaryWrite))
     }
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
     @Environment(\.accessibilityReduceMotion) var reduceMotion

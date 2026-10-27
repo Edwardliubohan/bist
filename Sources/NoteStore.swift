@@ -12,9 +12,11 @@ final class NoteStore: ObservableObject {
     var fileURL: URL { directory.appendingPathComponent("note.txt") }
     private var savedBytes: Data?
     private var unreadable = false
+    private let prepareForWrite: (() -> Bool)?
 
-    init(directory: URL) {
+    init(directory: URL, prepareForWrite: (() -> Bool)? = nil) {
         self.directory = directory
+        self.prepareForWrite = prepareForWrite
         do {
             savedBytes = try readBytes()
             if let savedBytes {
@@ -38,8 +40,14 @@ final class NoteStore: ObservableObject {
     func save() {
         guard !unreadable else { return }
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                    attributes: [.posixPermissions: 0o700])
+            // Respect the shared migration gate before any auxiliary file can
+            // publish an empty destination that would hide the legacy store.
+            if let prepareForWrite {
+                guard prepareForWrite() else { throw CocoaError(.fileWriteUnknown) }
+            } else {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                        attributes: [.posixPermissions: 0o700])
+            }
             let descriptor = open(directory.appendingPathComponent(".note.lock").path, O_CREAT | O_RDWR, 0o600)
             guard descriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
             defer { close(descriptor) }
