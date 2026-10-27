@@ -253,3 +253,14 @@ struct CompactDrag {
         return moved ? CGPoint(x: origin.x + dx, y: origin.y + dy) : nil
     }
 }
+
+/// SwiftUI reports top-left content coordinates; native mouse events use bottom-left.
+struct BistInteractionRegion: Equatable {
+    enum Kind { case text, drag }
+    let kind: Kind
+    let rect: CGRect
+    static func contains(_ kind: Kind, point: CGPoint, contentHeight: CGFloat, regions: [Self]) -> Bool {
+        let topLeft = CGPoint(x: point.x, y: contentHeight - point.y)
+        return regions.contains { $0.kind == kind && $0.rect.contains(topLeft) }
+    }
+}

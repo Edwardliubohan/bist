@@ -208,8 +208,8 @@ private struct HoverTaskPreview: View {
             .background {
                 ZStack {
                     PreviewGlass(opaque: solid)
-                    Color(red: 0.97, green: 0.96, blue: 0.94).opacity(solid ? 1 : 0.52)
-                    if !solid { LinearGradient(colors: [.white.opacity(0.36), violet.opacity(0.035)], startPoint: .topLeading, endPoint: .bottomTrailing) }
+                    Color(red: 0.97, green: 0.96, blue: 0.94).opacity(solid ? 1 : 0.10)
+                    if !solid { LinearGradient(colors: [.white.opacity(0.14), violet.opacity(0.015)], startPoint: .topLeading, endPoint: .bottomTrailing) }
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -254,7 +254,8 @@ private struct PreviewGlass: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.blendingMode = .behindWindow
-        view.material = .popover
+        view.material = .underWindowBackground
+        view.alphaValue = 0.28
         view.state = .active
         return view
     }

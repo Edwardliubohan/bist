@@ -4,6 +4,15 @@ import AppKit
 /// Shared reference keeps input modality live inside separately hosted popovers.
 final class BistFocusContext: ObservableObject {
     @Published var keyboardNavigation = false
+    @Published private(set) var textDismissGeneration = 0
+    func dismissTextEntry() { textDismissGeneration &+= 1 }
+    typealias RegionKind = BistInteractionRegion.Kind
+    var interactionRegions: [BistInteractionRegion] = []
+    func contains(_ kind: RegionKind, point: CGPoint, in window: NSWindow) -> Bool {
+        BistInteractionRegion.contains(kind, point: point,
+                                       contentHeight: window.contentView?.bounds.height ?? window.frame.height,
+                                       regions: interactionRegions)
+    }
     private var presentedPickers = Set<UUID>()
     var hasPresentedPicker: Bool { !presentedPickers.isEmpty }
     func setPickerPresented(id: UUID, presented: Bool) {
@@ -164,20 +173,20 @@ struct TactileStyle: ButtonStyle {
 /// Visual feedback changes only paint, so the corner target never moves or grows.
 struct CornerButtonStyle: ButtonStyle {
     let hovered: Bool
-    let feedbackEnabled: Bool
+    let feedback: Double
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.bistReduced) private var localReduce
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(cornerOrange.opacity(!feedbackEnabled ? 0 : configuration.isPressed ? 0.28 : hovered ? 0.18 : 0))
+                    .fill(cornerOrange.opacity((configuration.isPressed ? 0.28 : hovered ? 0.18 : 0) * feedback))
                     .overlay {
                         RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .strokeBorder(cornerOrange.opacity(feedbackEnabled && (hovered || configuration.isPressed) ? 0.42 : 0), lineWidth: 1)
+                            .strokeBorder(cornerOrange.opacity((hovered || configuration.isPressed) ? 0.42 * feedback : 0), lineWidth: 1)
                     }
-                    .shadow(color: cornerOrange.opacity(feedbackEnabled && hovered && !configuration.isPressed ? 0.24 : 0), radius: 3, y: 1)
-                    .transaction { if !feedbackEnabled { $0.animation = nil } }
+                    .shadow(color: cornerOrange.opacity(hovered && !configuration.isPressed ? 0.24 * feedback : 0), radius: 3, y: 1)
+
             }
             .animation(reduceMotion || localReduce ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
             .bistPointingHand()
@@ -198,6 +207,7 @@ func styleGlassScrollViews(in view: NSView) {
 }
 
 final class GlassHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func layout() {
         super.layout()
         styleGlassScrollViews(in: self)
@@ -222,4 +232,21 @@ struct OverlayScrollStyle: NSViewRepresentable {
             }
         }
     }
+}
+
+/// SwiftUI geometry is authoritative: native backing views can span the whole host.
+struct BistInteractionRegionsKey: PreferenceKey {
+    static let defaultValue: [BistInteractionRegion] = []
+    static func reduce(value: inout [BistInteractionRegion], nextValue: () -> [BistInteractionRegion]) {
+        value += nextValue()
+    }
+}
+extension View {
+    func bistInteractionRegion(_ kind: BistFocusContext.RegionKind) -> some View {
+        background(GeometryReader { proxy in
+            Color.clear.preference(key: BistInteractionRegionsKey.self,
+                                   value: [BistInteractionRegion(kind: kind, rect: proxy.frame(in: .named("bistPanel")))])
+        })
+    }
+    func bistTextEntry() -> some View { bistInteractionRegion(.text) }
 }

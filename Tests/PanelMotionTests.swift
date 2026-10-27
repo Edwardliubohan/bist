@@ -24,6 +24,22 @@ struct PanelMotionTests {
                 expect(interrupted == frame, "Reversal resumes at current geometry")
             }
         }
+        let bottomLeft = CGRect(x: 0, y: 0, width: 48, height: 48)
+        let clampedOpen = CGRect(x: 0, y: 0, width: 360, height: 560)
+        for (start, target) in [(bottomLeft, clampedOpen), (clampedOpen, bottomLeft),
+                                (CGRect(x: -1200, y: -900, width: 48, height: 48), expanded)] {
+            expect(PanelMotion.frame(from: start, to: target, progress: 0) == start, "Different anchors never jump at start")
+            expect(PanelMotion.frame(from: start, to: target, progress: 1) == target, "Different anchors finish exactly")
+            for step in 0...100 {
+                let t = Double(step) / 100
+                let frame = PanelMotion.frame(from: start, to: target, progress: t)
+                expect(frame.minX >= min(start.minX, target.minX) && frame.minX <= max(start.minX, target.minX), "Origin never overshoots")
+                expect(frame.minY >= min(start.minY, target.minY) && frame.minY <= max(start.minY, target.minY), "Vertical origin never overshoots")
+                expect(PanelMotion.frame(from: frame, to: start, progress: 0) == frame, "Interrupted clamped transition starts at current frame")
+            }
+        }
+        expect(PanelMotion.fraction(0.001) < 0.0000001, "Opening starts softly")
+        expect(1 - PanelMotion.fraction(0.999) < 0.0000001, "Opening settles softly")
         print("PASS: \(checks) panel motion checks")
     }
 }

@@ -95,6 +95,14 @@ struct PanelGeometryTests {
         let bottomAnchor = CornerLayout.frame(expanded: false, visibleFrame: screen, compactOrigin: .zero)
         expect(CornerLayout.previewFrame(anchor: bottomAnchor, contentHeight: 171, visibleFrame: screen).minY == bottomAnchor.maxY, "bottom-edge preview opens above icon")
 
+        let inputRegions = [BistInteractionRegion(kind: .text, rect: CGRect(x: 40, y: 490, width: 240, height: 25)),
+                            BistInteractionRegion(kind: .drag, rect: CGRect(x: 190, y: 0, width: 90, height: 48))]
+        expect(BistInteractionRegion.contains(.text, point: CGPoint(x: 100, y: 55), contentHeight: 560, regions: inputRegions), "native input click maps into SwiftUI field bounds")
+        expect(!BistInteractionRegion.contains(.text, point: CGPoint(x: 180, y: 210), contentHeight: 560, regions: inputRegions), "blank panel space is outside editable bounds and blurs input")
+        expect(BistInteractionRegion.contains(.drag, point: CGPoint(x: 230, y: 536), contentHeight: 560, regions: inputRegions), "blank header starts drag")
+        expect(!BistInteractionRegion.contains(.drag, point: CGPoint(x: 100, y: 536), contentHeight: 560, regions: inputRegions), "header buttons keep their click action")
+        expect(!BistInteractionRegion.contains(.text, point: CGPoint(x: 100, y: 55), contentHeight: 560, regions: []), "removed field has no stale clickable region")
+
         var focus = ButtonFocusPolicy()
         expect(!focus.keyboardNavigation, "focus starts in pointer mode")
         focus.pointerDown()

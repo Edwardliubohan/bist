@@ -168,6 +168,7 @@ private struct TaskComposer: View {
     @ObservedObject var draft: TaskCreationDraft
     var onCreated: (UUID?) -> Void = { _ in }
     @FocusState private var nameFocused: Bool
+    @EnvironmentObject private var focusContext: BistFocusContext
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -182,7 +183,8 @@ private struct TaskComposer: View {
                 TextField(draft.parentID == nil ? "Add a task" : "Add a subtask", text: $draft.title, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 12)).lineLimit(1...3).fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 5).focused($nameFocused).onSubmit(submit)
-                    .accessibilityLabel("Task name")
+                    .simultaneousGesture(TapGesture().onEnded { nameFocused = true })
+                    .accessibilityLabel("Task name").bistTextEntry()
                 if draft.expanded {
                     BistButton { draft.cancel(); nameFocused = false } label: {
                         Image(systemName: "xmark").font(.system(size: 8)).frame(width: 20, height: 25)
@@ -212,13 +214,13 @@ private struct TaskComposer: View {
                     Spacer(minLength: 0)
                 }.frame(height: 25)
                 if draft.detailsExpanded {
-                    TextEditor(text: $draft.details).font(.system(size: 11)).scrollContentBackground(.hidden)
+                    TextEditor(text: $draft.details).font(.system(size: 11)).bistTextEntry().scrollContentBackground(.hidden)
                         .frame(height: 42).padding(6).background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
                         .accessibilityLabel("Optional task details")
                 }
             }
         }.padding(.horizontal, 9).padding(.vertical, 5)
-            .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 9))
+            .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(nameFocused ? violet.opacity(0.5) : .white.opacity(0.8), lineWidth: 0.8))
             .onChange(of: draft.expanded) {
                 if !draft.expanded { draft.detailsExpanded = false; draft.creatingLabel = false }
@@ -229,6 +231,7 @@ private struct TaskComposer: View {
             }
             .onChange(of: store.labels.map(\.id)) { draft.reconcileLabels(available: Set(store.labels.map(\.id))) }
             .onChange(of: draft.focusRequest) { consumeFocus() }
+            .onChange(of: focusContext.textDismissGeneration) { nameFocused = false }
     }
     private func submit() {
         guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -238,8 +241,9 @@ private struct TaskComposer: View {
     private func consumeFocus() {
         guard draft.consumeFocus() else { return }
         let request = draft.focusRequest
+        let generation = focusContext.textDismissGeneration
         DispatchQueue.main.async {
-            if draft.focusRequest == request { nameFocused = true }
+            if draft.focusRequest == request && focusContext.textDismissGeneration == generation { nameFocused = true }
         }
     }
 }
@@ -352,7 +356,7 @@ private struct NewTagEntry: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            TextField("New label name", text: $name).textFieldStyle(.plain).font(.system(size: 11))
+            TextField("New label name", text: $name).textFieldStyle(.plain).bistTextEntry().font(.system(size: 11))
                 .padding(7).background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
                 .focused($focused).onSubmit(create).accessibilityLabel("New label name")
             BistButton("Create", action: create).buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundColor(violet)
@@ -623,7 +627,7 @@ private struct TaskInspectorContent: View {
                             }.buttonStyle(.plain).foregroundColor(muted)
                                 .accessibilityLabel("\(draft.detailsExpanded ? "Hide" : "Show") optional details")
                             if draft.detailsExpanded {
-                                TextEditor(text: $draft.notes).font(.system(size: 11)).scrollContentBackground(.hidden)
+                                TextEditor(text: $draft.notes).font(.system(size: 11)).bistTextEntry().scrollContentBackground(.hidden)
                                     .frame(height: 70).padding(6).background(.white.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
                                     .accessibilityLabel("Optional task details")
                             }
@@ -661,7 +665,7 @@ private struct TaskInspectorContent: View {
                     }
                     if let error = localError ?? store.storeError { Text(error).font(.system(size: 10)).foregroundColor(.red).padding(.top, 5) }
                     HStack {
-                        Text("Tags save now. Other edits need Save; Back keeps your draft.").font(.system(size: 10)).foregroundColor(muted)
+                        Text("Text and agent help need Save. Back keeps your draft.").font(.system(size: 10)).foregroundColor(muted)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer()
                         BistButton("Save changes") { save() }.buttonStyle(TactileStyle(accent: true, compact: true))
@@ -756,7 +760,7 @@ private struct TaskInspectorContent: View {
     private func field(_ name: String, text: Binding<String>, prompt: String = "") -> some View {
         VStack(alignment: .leading, spacing: 5) {
             caption(name)
-            TextField(prompt, text: text).textFieldStyle(.plain).font(.system(size: 11)).padding(8)
+            TextField(prompt, text: text).textFieldStyle(.plain).bistTextEntry().font(.system(size: 11)).padding(8)
                 .background(.white.opacity(0.4), in: RoundedRectangle(cornerRadius: 7)).accessibilityLabel(name)
         }
     }
@@ -807,7 +811,7 @@ private struct TaskLabelManager: View {
                 }
             }
             Text(editingID == nil ? "New label" : "Edit label").font(.system(size: 10, weight: .medium)).foregroundColor(muted)
-            TextField("Label name", text: $name).textFieldStyle(.plain).font(.system(size: 12)).padding(9)
+            TextField("Label name", text: $name).textFieldStyle(.plain).bistTextEntry().font(.system(size: 12)).padding(9)
                 .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 8)).focused($nameFocused).onSubmit(save).accessibilityLabel("Label name")
             HStack(spacing: 8) {
                 ForEach(TaskLabelColor.allCases) { candidate in
