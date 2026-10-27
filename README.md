@@ -1,6 +1,6 @@
 # bist
 
-A small native macOS checklist and session panel in the top-right corner. A monochrome geometric face sits in a 48-point glass control; hover briefly for a passive task preview, or click for the full panel.
+A small native macOS checklist and session panel in the top-right corner. A rounded orange-gradient geometric mark sits in a 48-point glass control; hover briefly for a passive task preview, or click for the full panel.
 
 ## Run locally
 
@@ -44,7 +44,11 @@ Agent help saves intent only. Without a supported connection, the UI says it is 
 
 Regular tasks use `.local-data/`; demo tasks use `.demo-data/`. `BIST_DATA_DIR` can select another folder. Schema 1 stores migrate in memory without losing task/session fields; the next successful edit saves schema 2. Malformed data is preserved and reported. Writes use atomic replacement and stale-write protection. Local stores, builds, screenshots, and credentials are excluded from Git.
 
-The panel sits 16 points inside the usable top-right screen edge. Its compact window is 48 × 48 points with a stationary 44 × 44 hit target; the full panel is 360 × 560 points, clamped on small screens. Glass, rim and press feedback are subtle. The face responds briefly to interaction; there is no perpetual animation. Mouse clicks suppress the unwanted native blue button box while keyboard navigation retains a rounded focus indicator.
+The panel starts 16 points inside the usable top-right screen edge. Drag the minimized control to move it; a normal click opens it. Its position is saved locally in the selected data directory and restored on launch. Expansion and the hover preview stay within the usable screen; collapse returns to the chosen compact position. Its compact window is 48 × 48 points with a stationary 44 × 44 hit target; the full panel is 360 × 560 points, clamped on small screens. The geometric mark stays anchored at the top right while the glass panel opens or closes; click it again to collapse. Tasks and Sessions share a compact system-font header and slide horizontally between views. Task editing and secondary navigation use short, clipped slide-and-fade transitions, without moving the header or logo. Reduced motion disables movement. Clickable controls use a pointing-hand cursor, while text inputs keep their I-beam. Task rows never display delayed tooltips. Mouse clicks suppress the unwanted native blue button box while keyboard navigation retains a rounded focus indicator.
+
+Past tasks and Tags are visible, labeled 32-point navigation targets above the checklist. Subtasks retain their individual disclosure controls, without a bulk expand/collapse menu. The editor's fixed Back to tasks control stays above its scroll area. Back preserves unsaved drafts without silently saving them; a dirty-state label and readable footer distinguish immediately saved tags from text and agent-help changes that require Save. All panel typography uses the default system font.
+
+The editable identity asset is `Assets/bist-mark.svg`, also bundled in the app's Resources. Its `orbit-upper` and `orbit-lower` groups can be transformed independently around the 24-unit canvas center. The native SwiftUI mark and generated app icons match those rounded paths and orange gradient; minimized hover adds only a brief opposing rotation, never a continuous loop. The expanded mark stays still without the minimized hover/press highlight; accessible keyboard focus remains available. Reduced motion keeps the mark still. `scripts/make-icon.swift` generates small-size light/dark previews alongside the ICNS for visual checks.
 
 No login item, background service, scheduled job, credentials, chat import, or Accessibility permission is installed. Private task data is not uploaded by bist.
 

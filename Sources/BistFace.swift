@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// bist's monochrome vector mark. State changes are brief and user-driven.
 struct BistFace: View {
     var size: CGFloat = 24
     var isHovered = false
@@ -8,57 +7,61 @@ struct BistFace: View {
     var reduceMotion = false
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
 
-    private var response: CGFloat { isExpanded ? 1 : (isHovered ? 0.55 : 0) }
-    private var motion: Animation? {
-        reduceMotion || systemReduceMotion ? nil : .easeOut(duration: 0.16)
-    }
+    private var motionDisabled: Bool { reduceMotion || systemReduceMotion }
+    private var response: Double { !motionDisabled && !isExpanded && isHovered ? 3 : 0 }
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 6.5 / 24, style: .circular)
-                .fill(Color.white)
-                .overlay {
-                    RoundedRectangle(cornerRadius: size * 6.5 / 24, style: .circular)
-                        .strokeBorder(Color.black, lineWidth: max(1.4, size * 2.15 / 24))
-                }
-                .padding(size * 1.5 / 24)
-
-            FaceFeatures(response: response)
-                .stroke(Color.black, style: StrokeStyle(lineWidth: max(1.5, size * 2.3 / 24), lineCap: .round, lineJoin: .round))
+            ForEach(0..<2) { index in
+                OrbitArc(opposing: index == 1)
+                    .stroke(
+                        LinearGradient(stops: [
+                            .init(color: Color(.sRGB, red: 255 / 255, green: 194 / 255, blue: 138 / 255), location: 0),
+                            .init(color: Color(.sRGB, red: 245 / 255, green: 138 / 255, blue: 61 / 255), location: 0.5),
+                            .init(color: Color(.sRGB, red: 201 / 255, green: 83 / 255, blue: 27 / 255), location: 1)
+                        ], startPoint: UnitPoint(x: 4 / 24, y: 3 / 24), endPoint: UnitPoint(x: 20 / 24, y: 21 / 24)),
+                        style: StrokeStyle(lineWidth: size * 4.5 / 24, lineCap: .round, lineJoin: .round)
+                    )
+                    .rotationEffect(.degrees(index == 0 ? response : -response))
+            }
         }
         .frame(width: size, height: size)
-        .animation(motion, value: isHovered)
-        .animation(motion, value: isExpanded)
+        .animation(motionDisabled ? nil : .easeOut(duration: 0.16), value: isHovered)
+        .transaction { transaction in
+            if motionDisabled || isExpanded {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+        }
         .accessibilityHidden(true)
         .allowsHitTesting(false)
     }
 }
 
-/// Chunky short eyes and an off-center smile remain readable at 16 points.
-private struct FaceFeatures: Shape {
-    var response: CGFloat
-    var animatableData: CGFloat {
-        get { response }
-        set { response = newValue }
-    }
+private struct OrbitArc: Shape {
+    var opposing: Bool
+
+    private let controlPoints: [CGPoint] = [
+        CGPoint(x: 8.25, y: 5.504809),
+        CGPoint(x: 10.570508, y: 4.165064),
+        CGPoint(x: 13.429492, y: 4.165064),
+        CGPoint(x: 15.75, y: 5.504809),
+        CGPoint(x: 18.070508, y: 6.844555),
+        CGPoint(x: 19.5, y: 9.320508),
+        CGPoint(x: 19.5, y: 12)
+    ]
 
     func path(in rect: CGRect) -> Path {
         let scale = min(rect.width, rect.height) / 24
-        let offset = CGPoint(x: rect.midX - 12 * scale, y: rect.midY - 12 * scale)
-        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: offset.x + x * scale, y: offset.y + y * scale)
+        func point(_ index: Int) -> CGPoint {
+            let source = controlPoints[index]
+            let position = opposing ? CGPoint(x: 24 - source.x, y: 24 - source.y) : source
+            return CGPoint(x: rect.midX + (position.x - 12) * scale, y: rect.midY + (position.y - 12) * scale)
         }
         var path = Path()
-        let eyeTop = 8.7 - response * 0.15
-        let eyeBottom = 10.1 + response * 0.1
-        for x: CGFloat in [8.7, 15.3] {
-            path.move(to: point(x + response * 0.2, eyeTop))
-            path.addLine(to: point(x + response * 0.2, eyeBottom))
-        }
-        path.move(to: point(9.2, 14.9 - response * 0.2))
-        path.addLine(to: point(10.7, 15.8 + response * 0.3))
-        path.addLine(to: point(13.0, 15.8 + response * 0.3))
-        path.addLine(to: point(14.8, 14.5 - response * 0.4))
+        path.move(to: point(0))
+        path.addCurve(to: point(3), control1: point(1), control2: point(2))
+        path.addCurve(to: point(6), control1: point(4), control2: point(5))
         return path
     }
 }

@@ -14,12 +14,19 @@ final class PreviewPanelController {
     private let panel: ReadOnlyPreviewPanel
     private var interaction = HoverPreviewInteraction()
     private var timer: Timer?
+    private var pointerTimer: Timer?
     private var observation: AnyCancellable?
     private var anchor = CGRect.zero
     private var visibleFrame: CGRect?
+    private var aboveAnchor = false
     var reducedMotion = false
     var reduceTransparency = false { didSet { if oldValue != reduceTransparency { refreshContent() } } }
     var isVisible: Bool { interaction.isVisible }
+
+    deinit {
+        timer?.invalidate()
+        pointerTimer?.invalidate()
+    }
 
     init(store: AppStore) {
         self.store = store
@@ -84,11 +91,14 @@ final class PreviewPanelController {
 
     private func updateGeometry() {
         let screen = visibleFrame ?? NSScreen.screens.first(where: { $0.frame.intersects(anchor) })?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchor
-        panel.setFrame(CornerLayout.previewFrame(anchor: anchor, contentHeight: contentHeight, visibleFrame: screen), display: true)
+        let frame = CornerLayout.previewFrame(anchor: anchor, contentHeight: contentHeight, visibleFrame: screen)
+        panel.setFrame(frame, display: true)
+        let above = frame.minY >= anchor.maxY
+        if above != aboveAnchor { aboveAnchor = above; refreshContent() }
     }
 
     private func refreshContent() {
-        let host = NSHostingView(rootView: HoverTaskPreview(store: store, opaque: reduceTransparency, onHover: { [weak self] inside in self?.previewHoverChanged(inside) }))
+        let host = NSHostingView(rootView: HoverTaskPreview(store: store, opaque: reduceTransparency, aboveAnchor: aboveAnchor, onHover: { [weak self] inside in self?.previewHoverChanged(inside) }))
         // The panel, not SwiftUI's intrinsic content size, owns screen geometry.
         host.sizingOptions = []
         host.wantsLayer = true
@@ -106,6 +116,7 @@ final class PreviewPanelController {
             let next = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    self.samplePointer()
                     _ = self.interaction.advance(at: ProcessInfo.processInfo.systemUptime, generation: token)
                     self.reconcile()
                 }
@@ -124,6 +135,27 @@ final class PreviewPanelController {
         } else {
             panel.orderOut(nil)
         }
+        if interaction.needsPointerSampling {
+            if pointerTimer == nil {
+                let next = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.samplePointer()
+                        self.reconcile()
+                    }
+                }
+                RunLoop.main.add(next, forMode: .common)
+                pointerTimer = next
+            }
+        } else {
+            pointerTimer?.invalidate()
+            pointerTimer = nil
+        }
+    }
+
+    private func samplePointer() {
+        let regions = CornerLayout.previewRegions(pointer: NSEvent.mouseLocation, anchor: anchor, preview: panel.isVisible ? panel.frame : nil)
+        interaction.reconcilePointer(regions: regions, at: ProcessInfo.processInfo.systemUptime)
     }
 }
 
@@ -131,6 +163,7 @@ final class PreviewPanelController {
 private struct HoverTaskPreview: View {
     @ObservedObject var store: AppStore
     let opaque: Bool
+    var aboveAnchor = false
     let onHover: (Bool) -> Void
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private let ink = Color(red: 0.18, green: 0.17, blue: 0.23)
@@ -143,7 +176,7 @@ private struct HoverTaskPreview: View {
     var body: some View {
         VStack(spacing: 0) {
             // Transparent tracking bridge: no visible surface touches the icon.
-            Color.clear.frame(height: CornerLayout.previewGap)
+            if !aboveAnchor { Color.clear.frame(height: CornerLayout.previewGap) }
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Outstanding").font(.system(size: 13, weight: .semibold))
@@ -181,6 +214,7 @@ private struct HoverTaskPreview: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.86), lineWidth: 1))
+            if aboveAnchor { Color.clear.frame(height: CornerLayout.previewGap) }
         }
         .foregroundStyle(ink)
         .preferredColorScheme(.light)

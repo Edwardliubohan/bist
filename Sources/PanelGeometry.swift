@@ -33,16 +33,45 @@ struct CornerLayout {
     static let previewGap: CGFloat = 8
     static let previewMaximumHeight: CGFloat = 240
 
+    static func previewRegions(pointer: CGPoint, anchor: CGRect, preview: CGRect?) -> Set<HoverPreviewInteraction.Region> {
+        var regions = Set<HoverPreviewInteraction.Region>()
+        if anchor.insetBy(dx: compactHitInset, dy: compactHitInset).contains(pointer) { regions.insert(.corner) }
+        if let preview, preview.contains(pointer) {
+            let above = preview.minY >= anchor.maxY
+            let bridge = above ? pointer.y < preview.minY + previewGap : pointer.y >= preview.maxY - previewGap
+            regions.insert(bridge ? .bridge : .preview)
+        }
+        return regions
+    }
+
     /// The window includes a transparent 8 pt bridge above its visible surface.
     /// This keeps tracking continuous between the stationary corner and preview.
     static func previewFrame(anchor: CGRect, contentHeight: CGFloat, visibleFrame: CGRect) -> CGRect {
         let bounds = visibleFrame.standardized
         let width = min(previewWidth, max(0, bounds.width - 2 * min(edgeInset, bounds.width / 2)))
         let height = min(max(0, contentHeight), previewMaximumHeight) + previewGap
-        let availableHeight = max(0, anchor.minY - bounds.minY - min(edgeInset, bounds.height / 2))
-        let fittedHeight = min(height, availableHeight)
+        let below = max(0, anchor.minY - bounds.minY)
+        let above = max(0, bounds.maxY - anchor.maxY)
+        let useAbove = below < height && above > below
+        let fittedHeight = min(height, useAbove ? above : below)
         let x = min(max(anchor.maxX - width, bounds.minX), bounds.maxX - width)
-        return CGRect(x: x, y: anchor.minY - fittedHeight, width: width, height: fittedHeight)
+        return CGRect(x: x, y: useAbove ? anchor.maxY : anchor.minY - fittedHeight, width: width, height: fittedHeight)
+    }
+
+    /// Keep the user's compact origin independent from temporary expansion clamping.
+    static func frame(expanded: Bool, visibleFrame: CGRect, compactOrigin: CGPoint) -> CGRect {
+        let size = frame(expanded: expanded, visibleFrame: visibleFrame).size
+        let compact = frame(expanded: false, visibleFrame: visibleFrame).size
+        let origin = CGPoint(x: compactOrigin.x + compact.width - size.width,
+                             y: compactOrigin.y + compact.height - size.height)
+        return clamped(CGRect(origin: origin, size: size), to: visibleFrame)
+    }
+
+    static func clamped(_ frame: CGRect, to bounds: CGRect) -> CGRect {
+        let bounds = bounds.standardized
+        return CGRect(x: min(max(frame.minX, bounds.minX), bounds.maxX - frame.width),
+                      y: min(max(frame.minY, bounds.minY), bounds.maxY - frame.height),
+                      width: frame.width, height: frame.height)
     }
 
     static func frame(expanded: Bool, visibleFrame: CGRect) -> CGRect {
@@ -83,10 +112,18 @@ struct HoverPreviewInteraction {
     private(set) var isExpanded = false
     private(set) var regions: Set<Region> = []
     private(set) var suppressedUntilExit = false
+    var needsPointerSampling: Bool { !isExpanded && (isVisible || pending != nil || !regions.isEmpty) }
 
     mutating func pointerChanged(_ region: Region, inside: Bool, at now: TimeInterval) {
-        let changed = inside ? regions.insert(region).inserted : regions.remove(region) != nil
-        guard changed else { return }
+        var next = regions
+        if inside { next.insert(region) } else { next.remove(region) }
+        reconcilePointer(regions: next, at: now)
+    }
+
+    mutating func reconcilePointer(regions next: Set<Region>, at now: TimeInterval) {
+        guard !isExpanded else { return }
+        guard next != regions else { return }
+        regions = next
         if regions.isEmpty { suppressedUntilExit = false }
         guard !isExpanded && !suppressedUntilExit else { return }
         if isVisible {
@@ -147,6 +184,24 @@ struct HoverPreviewInteraction {
     }
 }
 
+struct PointingHandGeometry {
+    static func rectangles(in bounds: CGRect, excluding exclusions: [CGRect], enabled: Bool) -> [CGRect] {
+        guard enabled && !bounds.isEmpty && !bounds.isNull else { return [] }
+        return exclusions.reduce([bounds]) { rectangles, exclusion in
+            rectangles.flatMap { rectangle -> [CGRect] in
+                let overlap = rectangle.intersection(exclusion)
+                guard !overlap.isNull && !overlap.isEmpty else { return [rectangle] }
+                return [
+                    CGRect(x: rectangle.minX, y: rectangle.minY, width: rectangle.width, height: overlap.minY - rectangle.minY),
+                    CGRect(x: rectangle.minX, y: overlap.maxY, width: rectangle.width, height: rectangle.maxY - overlap.maxY),
+                    CGRect(x: rectangle.minX, y: overlap.minY, width: overlap.minX - rectangle.minX, height: overlap.height),
+                    CGRect(x: overlap.maxX, y: overlap.minY, width: rectangle.maxX - overlap.maxX, height: overlap.height)
+                ].filter { !$0.isEmpty }
+            }
+        }
+    }
+}
+
 /// Hover is visual feedback only. Opening always requires explicit activation.
 struct CornerInteraction {
     private(set) var isHovered = false
@@ -184,5 +239,17 @@ struct ButtonFocusPolicy {
 
     static func showsRing(focused: Bool, keyboardNavigation: Bool) -> Bool {
         focused && keyboardNavigation
+    }
+}
+
+/// A small slop keeps ordinary clicks from becoming accidental drags.
+struct CompactDrag {
+    let pointer: CGPoint
+    let origin: CGPoint
+    private(set) var moved = false
+    mutating func update(pointer next: CGPoint) -> CGPoint? {
+        let dx = next.x - pointer.x, dy = next.y - pointer.y
+        moved = moved || hypot(dx, dy) >= 4
+        return moved ? CGPoint(x: origin.x + dx, y: origin.y + dy) : nil
     }
 }

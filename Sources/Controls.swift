@@ -19,7 +19,55 @@ extension EnvironmentValues { var bistFocusReveal: () -> Void { get { self[BistF
 let ink = Color(red: 0.18, green: 0.17, blue: 0.23)
 let muted = Color(red: 0.43, green: 0.41, blue: 0.49)
 let violet = Color(red: 0.47, green: 0.37, blue: 0.73)
+let cornerOrange = Color(red: 0.94, green: 0.36, blue: 0.12)
 let ivory = Color(red: 0.97, green: 0.96, blue: 0.94)
+
+private struct BistPointingHand: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        content.background(PointingHandRegion(enabled: enabled && isEnabled))
+    }
+}
+
+extension View {
+    func bistPointingHand(enabled: Bool = true) -> some View {
+        modifier(BistPointingHand(enabled: enabled))
+    }
+}
+
+private struct PointingHandRegion: NSViewRepresentable {
+    let enabled: Bool
+    func makeNSView(context: Context) -> CursorView { CursorView() }
+    func updateNSView(_ view: CursorView, context: Context) { view.enabled = enabled; view.refresh() }
+    static func dismantleNSView(_ view: CursorView, coordinator: ()) { view.discardCursorRects() }
+
+    final class CursorView: NSView {
+        var enabled = true
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); refresh() }
+        override func layout() { super.layout(); refresh() }
+        func refresh() { window?.invalidateCursorRects(for: self) }
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            var exclusions = [CGRect]()
+            func inspect(_ view: NSView) {
+                if let field = view as? NSTextField, field.isEditable || field.isSelectable {
+                    exclusions.append(convert(field.bounds, from: field))
+                } else if let text = view as? NSTextView, text.isEditable || text.isSelectable {
+                    exclusions.append(convert(text.bounds, from: text))
+                } else if let control = view as? NSControl, !control.isEnabled {
+                    exclusions.append(convert(control.bounds, from: control))
+                }
+                view.subviews.forEach(inspect)
+            }
+            if let root = window?.contentView { inspect(root) }
+            for rectangle in PointingHandGeometry.rectangles(in: visibleRect, excluding: exclusions, enabled: enabled) {
+                addCursorRect(rectangle, cursor: .pointingHand)
+            }
+        }
+    }
+}
 
 /// Native focus effects are suppressed; keyboard users keep an intentional ring.
 private struct BistButtonFocus: ViewModifier {
@@ -69,6 +117,25 @@ struct BistButton<Label: View>: View {
             action()
         } label: { label }
             .modifier(BistButtonFocus(radius: focusRadius, action: action))
+            .bistPointingHand()
+    }
+}
+
+struct PanelNavigationButton: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+
+    var body: some View {
+        BistButton(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 10).frame(minHeight: 32)
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain).foregroundColor(ink)
+        .background(ink.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityLabel(title)
     }
 }
 
@@ -89,6 +156,7 @@ struct TactileStyle: ButtonStyle {
             .animation(reduce || localReduce ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
             .contentShape(RoundedRectangle(cornerRadius: 12))
             .opacity(enabled ? 1 : 0.5)
+            .bistPointingHand()
     }
 }
 
@@ -96,16 +164,23 @@ struct TactileStyle: ButtonStyle {
 /// Visual feedback changes only paint, so the corner target never moves or grows.
 struct CornerButtonStyle: ButtonStyle {
     let hovered: Bool
+    let feedbackEnabled: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.bistReduced) private var localReduce
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(configuration.isPressed ? violet.opacity(0.12) : .white.opacity(hovered ? 0.46 : 0))
-                    .shadow(color: violet.opacity(hovered && !configuration.isPressed ? 0.16 : 0), radius: 3, y: 1)
+                    .fill(cornerOrange.opacity(!feedbackEnabled ? 0 : configuration.isPressed ? 0.28 : hovered ? 0.18 : 0))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .strokeBorder(cornerOrange.opacity(feedbackEnabled && (hovered || configuration.isPressed) ? 0.42 : 0), lineWidth: 1)
+                    }
+                    .shadow(color: cornerOrange.opacity(feedbackEnabled && hovered && !configuration.isPressed ? 0.24 : 0), radius: 3, y: 1)
+                    .transaction { if !feedbackEnabled { $0.animation = nil } }
             }
             .animation(reduceMotion || localReduce ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+            .bistPointingHand()
     }
 }
 

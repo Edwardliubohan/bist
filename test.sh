@@ -8,7 +8,10 @@ xcrun swiftc -module-cache-path "$PWD/build/module-cache" Sources/LocalInbox.swi
 build/tests/inbox
 xcrun swiftc -module-cache-path "$PWD/build/module-cache" Sources/PanelGeometry.swift Tests/PanelGeometryTests.swift -o build/tests/panel
 build/tests/panel
+xcrun swiftc -module-cache-path "$PWD/build/module-cache" Sources/PanelMotion.swift Tests/PanelMotionTests.swift -o build/tests/panel-motion
+build/tests/panel-motion
 xcrun swiftc -module-cache-path "$PWD/build/module-cache" Sources/AgentResults.swift Tests/AgentResultsTests.swift -o build/tests/agent-results
 build/tests/agent-results
 xcrun swiftc -module-cache-path "$PWD/build/module-cache" Sources/BistCore.swift Sources/LocalInbox.swift Sources/TaskViewState.swift Tests/TaskViewStateTests.swift -o build/tests/task-view-state
 build/tests/task-view-state
+python3 scripts/test-logo.py
