@@ -5,10 +5,11 @@ struct BistFace: View {
     var isHovered = false
     var isExpanded = false
     var reduceMotion = false
+    @State private var openingAngle: Double = 0
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
 
     private var motionDisabled: Bool { reduceMotion || systemReduceMotion }
-    private var response: Double { !motionDisabled && !isExpanded && isHovered ? 9 : 0 }
+    private var response: Double { !motionDisabled && isHovered ? 9 : 0 }
 
     var body: some View {
         ZStack {
@@ -27,14 +28,36 @@ struct BistFace: View {
         }
         .frame(width: size, height: size)
         .animation(motionDisabled ? nil : .easeOut(duration: 0.16), value: isHovered)
+        .rotationEffect(.degrees(motionDisabled ? 0 : openingAngle))
+        .onAppear { if isExpanded { turnOnOpen() } }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded { turnOnOpen() }
+        }
+        .onChange(of: motionDisabled) { _, disabled in
+            if disabled {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { openingAngle = 0 }
+            }
+        }
         .transaction { transaction in
-            if motionDisabled || isExpanded {
+            if motionDisabled {
                 transaction.animation = nil
                 transaction.disablesAnimations = true
             }
         }
         .accessibilityHidden(true)
         .allowsHitTesting(false)
+    }
+
+    private func turnOnOpen() {
+        guard !motionDisabled else { return }
+        // Keep whole turns rather than resetting at completion: a rapid reopen
+        // retargets the current presentation without a stale completion or snap.
+        // Half a second makes a full revolution readable without delaying input.
+        withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.5)) {
+            openingAngle += 360
+        }
     }
 }
 
