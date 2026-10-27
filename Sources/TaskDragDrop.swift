@@ -138,4 +138,3 @@ struct TaskMovePicker: View {
         if store.moveTask(id: taskID, to: placement) { didMove() }
     }
 }
-
