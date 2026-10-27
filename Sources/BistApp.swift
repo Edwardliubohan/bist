@@ -369,6 +369,7 @@ struct BistView: View {
                 .frame(width: state.openSize.width, height: state.openSize.height)
                 .opacity(state.reveal)
                 .allowsHitTesting(state.expanded && state.reveal > 0.98)
+                .disabled(!state.expanded || state.reveal <= 0.98)
                 .accessibilityHidden(!state.expanded)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
