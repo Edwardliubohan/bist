@@ -32,7 +32,7 @@ struct AgentResultsView: View {
                     }
                     ForEach(results) { result in resultRow(result) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }.scrollIndicators(.hidden)
+            }
             Text("“Agent done” records your reviewed output. It never changes “I’m done” or reports a running agent.")
                 .font(.system(size: 10)).foregroundColor(muted).fixedSize(horizontal: false, vertical: true)
         }.padding(.horizontal, 20).padding(.bottom, 20).onAppear(perform: load)

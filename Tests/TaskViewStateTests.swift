@@ -173,6 +173,70 @@ struct TaskViewStateTests {
                "returning to capture drops deleted tags without discarding other draft inputs")
         expect(navigationDraft.submit(to: store), "draft remains submittable after selected label deletion")
 
+        let minimal = TaskCreationDraft()
+        minimal.requestFocus()
+        expect(!minimal.expanded && minimal.consumeFocus(), "CmdN focuses empty creation without expanding optional controls")
+        minimal.title = "Typed"
+        expect(minimal.expanded, "typing a task reveals compact optional controls")
+        minimal.title = ""
+        expect(!minimal.expanded, "clearing the only text restores minimal creation")
+        minimal.title = "Title"; minimal.details = "Retain details"; minimal.title = ""
+        expect(minimal.expanded && minimal.details == "Retain details", "clearing title retains visible optional details draft")
+        minimal.details = ""; minimal.labelIDs = [store.labels[0].id]
+        expect(minimal.expanded, "selected tag keeps its draft controls available")
+        minimal.labelIDs = []; minimal.agentHelpRequested = true
+        expect(minimal.expanded, "agent intent remains visible when title is cleared")
+        minimal.cancel()
+        expect(!minimal.expanded && !minimal.consumeFocus(), "cancel returns minimal and invalidates queued focus request")
+        minimal.title = "Rapid capture"
+        expect(minimal.submit(to: store) && !minimal.expanded, "successful title submission returns to single line")
+
+        minimal.detailsExpanded = true
+        expect(minimal.expanded, "explicit details request expands an empty capture")
+        minimal.cancel()
+        expect(!minimal.expanded, "cancel closes explicitly requested details")
+
+        let treeStore = AppStore(directory: directory.appendingPathComponent("active-tree"))
+        expect(treeStore.addTask(title: "Koan"), "create project")
+        let parentID = treeStore.tasks[0].id
+        expect(treeStore.addTask(title: "Child", parentID: parentID), "create unfinished child")
+        let childID = treeStore.tasks[1].id
+        expect(treeStore.addTask(title: "Grandchild", parentID: childID), "create grandchild")
+        let grandchildID = treeStore.tasks[2].id
+        expect(treeStore.addTask(title: "Next root"), "create next stable root")
+        let nextID = treeStore.tasks[3].id
+        func active(_ collapsed: Set<UUID> = []) -> [ChecklistEntry] {
+            ActiveChecklist(tasks: treeStore.tasks, collapsedParents: collapsed).entries(for: .shortTerm)
+        }
+        expect(active().map(\.id) == [parentID, childID, grandchildID, nextID], "active preorder preserves tree ordering")
+        expect(active([parentID]).map(\.id) == [parentID, nextID], "active project collapses descendants")
+        expect(treeStore.setUserCompletion(id: parentID, completed: true), "complete collapsed parent")
+        expect(active([parentID]).map(\.id) == [childID, grandchildID, nextID], "completed parent disappears without hiding unfinished children")
+        expect(active().map(\.depth) == [0, 1, 0], "unfinished descendants promote visually without changing parents")
+        expect(treeStore.tasks[1].parentID == parentID && !treeStore.tasks[1].completed, "promotion never mutates child data")
+        expect(treeStore.completedHistory.map(\.id) == [parentID], "completed parent enters history immediately")
+        expect(treeStore.setUserCompletion(id: childID, completed: true), "complete nested child")
+        expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).children(of: parentID).map(\.id) == [grandchildID],
+               "inspector completion hides child but promotes unfinished grandchild")
+        expect(treeStore.tasks.first { $0.id == grandchildID }?.parentID == childID && !treeStore.tasks[2].completed,
+               "inspector projection preserves unfinished grandchild data")
+        expect(active([parentID, childID]).map(\.id) == [grandchildID, nextID], "multiple completed ancestors cannot hide unfinished descendants")
+        expect(treeStore.completedHistory.map(\.id) == [childID, parentID], "history uses actual completion order")
+        expect(treeStore.undo() && active().map(\.id) == [childID, grandchildID, nextID], "undo completion restores active hierarchy")
+        expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).children(of: parentID).map(\.id) == [childID],
+               "undo restores inspector direct-child hierarchy")
+        expect(treeStore.setUserCompletion(id: parentID, completed: false), "reopen parent")
+        expect(active().map(\.id) == [parentID, childID, grandchildID, nextID], "reopen restores original ordering")
+        expect(treeStore.setTaskHorizon(id: childID, horizon: .longerTerm), "move tree from child")
+        expect(active().map(\.id) == [nextID], "group move leaves unrelated order stable")
+        let moved = ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).entries(for: .longerTerm)
+        expect(moved.map(\.id) == [parentID, childID, grandchildID], "group move retains tree order")
+        expect(treeStore.setUserCompletion(id: childID, completed: true) && treeStore.setUserCompletion(id: grandchildID, completed: true), "complete all descendants")
+        expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).entries(for: .longerTerm).first?.hasChildren == false,
+               "completed-only children do not expose an empty disclosure")
+        expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).children(of: parentID).isEmpty,
+               "inspector excludes completed-only descendants")
+
         print("PASS: \(checks) task view-state checks")
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Shared reference keeps input modality live inside separately hosted popovers.
 final class BistFocusContext: ObservableObject {
@@ -11,7 +12,9 @@ final class BistFocusContext: ObservableObject {
 }
 
 private struct BistReducedKey: EnvironmentKey { static let defaultValue = false }
+private struct BistFocusRevealKey: EnvironmentKey { static let defaultValue: () -> Void = {} }
 extension EnvironmentValues { var bistReduced: Bool { get { self[BistReducedKey.self] } set { self[BistReducedKey.self] = newValue } } }
+extension EnvironmentValues { var bistFocusReveal: () -> Void { get { self[BistFocusRevealKey.self] } set { self[BistFocusRevealKey.self] = newValue } } }
 
 let ink = Color(red: 0.18, green: 0.17, blue: 0.23)
 let muted = Color(red: 0.43, green: 0.41, blue: 0.49)
@@ -23,10 +26,14 @@ private struct BistButtonFocus: ViewModifier {
     @EnvironmentObject private var focusContext: BistFocusContext
     @FocusState private var focused: Bool
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.bistFocusReveal) private var revealFocus
     var radius: CGFloat = 10
     let action: () -> Void
     func body(content: Content) -> some View {
         content.focusable(isEnabled).focused($focused).focusEffectDisabled()
+            .onChange(of: focused) {
+                if focused && focusContext.keyboardNavigation { revealFocus() }
+            }
             .onKeyPress(keys: [.space, .return, KeyEquivalent("\u{3}")], phases: .down) { _ in
                 guard focused && isEnabled else { return .ignored }
                 action()
@@ -44,6 +51,7 @@ private struct BistButtonFocus: ViewModifier {
 }
 /// One focus target with explicit keyboard activation for custom button styling.
 struct BistButton<Label: View>: View {
+    @EnvironmentObject private var focusContext: BistFocusContext
     let action: () -> Void
     let label: Label
     var focusRadius: CGFloat
@@ -54,7 +62,12 @@ struct BistButton<Label: View>: View {
         self.action = action; self.label = Text(title); self.focusRadius = 10
     }
     var body: some View {
-        Button(action: action) { label }
+        Button {
+            // Native/AX activation can arrive without a local mouse-down event.
+            // Explicit keyboard activation is handled by the modifier below.
+            focusContext.keyboardNavigation = false
+            action()
+        } label: { label }
             .modifier(BistButtonFocus(radius: focusRadius, action: action))
     }
 }
@@ -93,5 +106,45 @@ struct CornerButtonStyle: ButtonStyle {
                     .shadow(color: violet.opacity(hovered && !configuration.isPressed ? 0.16 : 0), radius: 3, y: 1)
             }
             .animation(reduceMotion || localReduce ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// Keep scrolling native and accessible while matching the translucent material.
+func styleGlassScrollViews(in view: NSView) {
+    if let scroll = view as? NSScrollView {
+        if scroll.scrollerStyle != .overlay { scroll.scrollerStyle = .overlay }
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        scroll.contentView.drawsBackground = false
+        scroll.verticalScroller?.controlSize = .mini
+        scroll.horizontalScroller?.controlSize = .mini
+    }
+    view.subviews.forEach { styleGlassScrollViews(in: $0) }
+}
+
+final class GlassHostingView<Content: View>: NSHostingView<Content> {
+    override func layout() {
+        super.layout()
+        styleGlassScrollViews(in: self)
+    }
+}
+
+/// Place inside a SwiftUI scroll view's content, including separately hosted popovers.
+struct OverlayScrollStyle: NSViewRepresentable {
+    func makeNSView(context: Context) -> Probe { Probe() }
+    func updateNSView(_ view: Probe, context: Context) { view.applySoon() }
+    final class Probe: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); applySoon() }
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); applySoon() }
+        func applySoon() {
+            DispatchQueue.main.async { [weak self] in
+                var ancestor = self?.superview
+                while let view = ancestor {
+                    if let scroll = view as? NSScrollView { styleGlassScrollViews(in: scroll); return }
+                    ancestor = view.superview
+                }
+            }
+        }
     }
 }

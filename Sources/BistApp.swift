@@ -77,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovable = false; panel.animationBehavior = .none
         panel.acceptsMouseMovedEvents = true
-        let host = NSHostingView(rootView: BistView(store: store, state: state, directory: directory))
+        let host = GlassHostingView(rootView: BistView(store: store, state: state, directory: directory))
         // AppKit owns the fixed corner geometry; child scroll content must not resize the window.
         host.sizingOptions = []
         host.wantsLayer = true; host.layer?.backgroundColor = NSColor.clear.cgColor
@@ -354,7 +354,7 @@ struct BistView: View {
                     }
                     ForEach(store.sessions) { session in sessionRow(session) }
                 }.padding(.horizontal, 17)
-            }.scrollIndicators(.hidden)
+            }
             Spacer(minLength: 8)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) { Image(systemName: "lock.shield"); Text("Only what you choose to link").fontWeight(.medium) }.font(.system(size: 11))

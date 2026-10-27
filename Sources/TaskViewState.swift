@@ -5,7 +5,6 @@ import Combine
 /// draft or silently changes the user's tree and visibility choices.
 final class ChecklistViewState: ObservableObject {
     @Published var collapsedParents: Set<UUID> = []
-    @Published var showCompleted = true
     @Published var showLabels = false
     @Published var showHistory = false
     let creation = TaskCreationDraft()
@@ -20,6 +19,56 @@ final class ChecklistViewState: ObservableObject {
     }
 }
 
+struct ChecklistEntry: Identifiable {
+    let task: TaskItem
+    let depth: Int
+    let hasChildren: Bool
+    var id: UUID { task.id }
+}
+
+struct ActiveChecklist {
+    let tasks: [TaskItem]
+    let collapsedParents: Set<UUID>
+
+    func children(of parentID: UUID) -> [TaskItem] {
+        let children = Dictionary(grouping: tasks.filter { $0.parentID != nil }, by: { $0.parentID! })
+        var visited: Set<UUID> = [parentID]
+        func visible(_ task: TaskItem) -> [TaskItem] {
+            guard visited.insert(task.id).inserted else { return [] }
+            return task.completed ? (children[task.id] ?? []).flatMap(visible) : [task]
+        }
+        return (children[parentID] ?? []).flatMap(visible)
+    }
+
+    func entries(for horizon: TaskHorizon) -> [ChecklistEntry] {
+        let ids = Set(tasks.map(\.id))
+        let children = Dictionary(grouping: tasks.filter { $0.parentID != nil }, by: { $0.parentID! })
+        var visited = Set<UUID>()
+        var result: [ChecklistEntry] = []
+        func append(_ task: TaskItem, depth: Int) {
+            guard visited.insert(task.id).inserted else { return }
+            let descendants = children[task.id] ?? []
+            if task.completed {
+                descendants.forEach { append($0, depth: depth) }
+            } else {
+                result.append(ChecklistEntry(task: task, depth: depth,
+                                             hasChildren: hasActiveDescendants(task.id, seen: [])))
+                if !collapsedParents.contains(task.id) {
+                    descendants.forEach { append($0, depth: depth + 1) }
+                }
+            }
+        }
+        func hasActiveDescendants(_ parentID: UUID, seen: Set<UUID>) -> Bool {
+            guard !seen.contains(parentID) else { return false }
+            var next = seen; next.insert(parentID)
+            return (children[parentID] ?? []).contains { !$0.completed || hasActiveDescendants($0.id, seen: next) }
+        }
+        tasks.filter { ($0.parentID == nil || !ids.contains($0.parentID!)) && $0.horizon == horizon }
+            .forEach { append($0, depth: 0) }
+        return result
+    }
+}
+
 /// Creation intentionally has no session, source, next-action, date, or urgency
 /// fields. Nothing reaches the store until the single atomic submit succeeds.
 final class TaskCreationDraft: ObservableObject {
@@ -28,7 +77,6 @@ final class TaskCreationDraft: ObservableObject {
     @Published var labelIDs: [UUID] = []
     @Published var agentHelpRequested = false
     @Published var detailsExpanded = false
-    @Published var expanded = false
     @Published var parentID: UUID?
     @Published var horizon: TaskHorizon = .shortTerm
     @Published var newLabelName = ""
@@ -38,7 +86,11 @@ final class TaskCreationDraft: ObservableObject {
     private let initialParentID: UUID?
 
     init(parentID: UUID? = nil) { self.parentID = parentID; initialParentID = parentID }
-    func requestFocus() { expanded = true; focusRequest += 1 }
+    var expanded: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !details.isEmpty ||
+            !labelIDs.isEmpty || agentHelpRequested || !newLabelName.isEmpty || detailsExpanded
+    }
+    func requestFocus() { focusRequest += 1 }
     func consumeFocus() -> Bool {
         guard focusRequest > consumedFocusRequest else { return false }
         consumedFocusRequest = focusRequest; return true
@@ -48,7 +100,9 @@ final class TaskCreationDraft: ObservableObject {
     }
     func cancel() {
         resetFields()
-        parentID = initialParentID; horizon = .shortTerm; expanded = false
+        parentID = initialParentID; horizon = .shortTerm
+        // Invalidate any focus callback queued before the user cancelled.
+        focusRequest += 1; consumedFocusRequest = focusRequest
     }
     @MainActor
     @discardableResult func submit(to store: AppStore) -> Bool {

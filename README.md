@@ -23,11 +23,11 @@ The app respects macOS Reduce Motion and Reduce Transparency; the corresponding 
 
 ## Checklist
 
-- Thin 26-point rows, with separate **Me** and **Agent** columns. Checking “I'm done” never changes agent completion, or any child task.
+- Thin 26-point rows, with separate **Me** and **Agent** columns. Checking “I'm done” immediately removes the row from the active checklist and hover preview, without changing agent completion or any child task. Unfinished children remain visible in their existing order, even when their completed parent was collapsed.
 - Nested subtasks with collapsible disclosure. Add a child from the row menu or task details; edit its parent in details. Cycles and missing parents are rejected.
 - User-defined labels with a name and one of six colors. School, Class, and Koan are initial editable labels. Tasks may have multiple labels.
-- Minimal capture with a name, optional details, tag choice and Agent help intent. Short term / Longer term groups retain their stored order; dates do not reorder them. Moving any subtask between groups moves its root tree.
-- Completed history uses actual user-completion timestamps, newest first. Older completed tasks without a timestamp are shown last as time unknown. Reopening clears the completion time; undo restores it. Agent results never set this timestamp.
+- Minimal single-line capture expands only after typing or explicitly opening details. Details, Tag and Agent help share one compact row. Short term / Longer term groups retain their stored order; dates do not reorder them. Moving any subtask between groups moves its root tree.
+- Completed history uses actual user-completion timestamps, newest first, with an explicit Reopen control. Older completed tasks without a timestamp are shown last as time unknown. Reopening clears the completion time; undo restores it. Agent results never set this timestamp.
 - A read-only hover preview after a short intent delay, with a grace period and transparent bridge when moving into the preview. It does not activate the app or move the corner control. Clicking the corner opens the full panel.
 
 Details and tags are simple to edit; parent selection, session linking, evidence and source fields stay behind More in task details. Custom compact selection popovers support keyboard navigation and dismissal. A draft in the capture field and tree disclosure state survive navigation within the running app.

@@ -10,15 +10,6 @@ private extension TaskLabelColor {
     }
 }
 
-private struct ChecklistEntry: Identifiable {
-    let task: TaskItem
-    let depth: Int
-    let hasChildren: Bool
-    var id: UUID { task.id }
-}
-
-/// The list retains completed rows by default, so checking one does not move the
-/// next target under the pointer. Hiding completed work is an explicit action.
 struct ChecklistPane: View {
     @ObservedObject var store: AppStore
     let openTask: (UUID) -> Void
@@ -30,7 +21,6 @@ struct ChecklistPane: View {
         get { viewState.collapsedParents }
         nonmutating set { viewState.collapsedParents = newValue }
     }
-    private var showCompleted: Bool { viewState.showCompleted }
     private var showLabels: Bool {
         get { viewState.showLabels }
         nonmutating set { viewState.showLabels = newValue }
@@ -38,31 +28,8 @@ struct ChecklistPane: View {
     private var children: [UUID: [TaskItem]] {
         Dictionary(grouping: store.tasks.filter { $0.parentID != nil }, by: { $0.parentID! })
     }
-    private var roots: [TaskItem] {
-        let ids = Set(store.tasks.map(\.id))
-        return store.tasks.filter { $0.parentID == nil || !ids.contains($0.parentID!) }
-    }
     private func entries(for horizon: TaskHorizon) -> [ChecklistEntry] {
-        let byParent = children
-        var result: [ChecklistEntry] = []
-        var visited = Set<UUID>()
-        func hasOpenWork(_ task: TaskItem, seen: Set<UUID>) -> Bool {
-            guard !seen.contains(task.id) else { return false }
-            if !task.completed { return true }
-            var next = seen; next.insert(task.id)
-            return (byParent[task.id] ?? []).contains { hasOpenWork($0, seen: next) }
-        }
-        func append(_ task: TaskItem, depth: Int) {
-            guard visited.insert(task.id).inserted,
-                  showCompleted || hasOpenWork(task, seen: []) else { return }
-            let descendants = byParent[task.id] ?? []
-            result.append(ChecklistEntry(task: task, depth: depth, hasChildren: !descendants.isEmpty))
-            if !collapsedParents.contains(task.id) {
-                descendants.forEach { append($0, depth: depth + 1) }
-            }
-        }
-        roots.filter { $0.horizon == horizon }.forEach { append($0, depth: 0) }
-        return result
+        ActiveChecklist(tasks: store.tasks, collapsedParents: collapsedParents).entries(for: horizon)
     }
 
     var body: some View {
@@ -86,7 +53,6 @@ struct ChecklistPane: View {
                             Image(systemName: "tag").font(.system(size: 11)).frame(width: 24, height: 24)
                         }.buttonStyle(.plain).foregroundColor(muted).help("Manage labels").accessibilityLabel("Manage labels")
                         Menu {
-                            Toggle("Show completed tasks", isOn: $viewState.showCompleted)
                             Button("Expand all subtasks") { collapsedParents.removeAll() }
                             Button("Collapse all subtasks") { collapsedParents = Set(children.keys) }
                         } label: { Image(systemName: "ellipsis").frame(width: 18, height: 24) }
@@ -99,6 +65,7 @@ struct ChecklistPane: View {
                         Text("Agent").frame(width: 32).accessibilityLabel("Reviewed agent completion column")
                     }.font(.system(size: 8, weight: .medium)).foregroundColor(muted).padding(.horizontal, 16).padding(.bottom, 5)
                     Rectangle().fill(ink.opacity(0.07)).frame(height: 0.5).padding(.horizontal, 17)
+                    ScrollViewReader { scrollProxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             if store.tasks.isEmpty {
@@ -109,15 +76,16 @@ struct ChecklistPane: View {
                                         .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundColor(violet)
                                 }.padding(.horizontal, 9).padding(.vertical, 22)
                             } else {
-                                section(.shortTerm)
-                                section(.longerTerm)
-                                if !showCompleted && store.tasks.allSatisfy(\.completed) {
-                                    Text("All checked. Show completed tasks from the list menu.")
+                                section(.shortTerm, scrollProxy: scrollProxy)
+                                section(.longerTerm, scrollProxy: scrollProxy)
+                                if store.tasks.allSatisfy(\.completed) {
+                                    Text("All checked. Your completed tasks are in history.")
                                         .font(.system(size: 11)).foregroundColor(muted).padding(12)
                                 }
                             }
                         }.padding(.horizontal, 16).padding(.bottom, 12)
-                    }.scrollIndicators(.hidden)
+                    }
+                    }
                     TaskUndoLine(store: store).padding(.horizontal, 19).padding(.bottom, 7)
                     TaskComposer(store: store, draft: viewState.creation) { parentID in
                         if let parentID { collapsedParents.remove(parentID) }
@@ -134,7 +102,7 @@ struct ChecklistPane: View {
         .onChange(of: focusRequest) { consumeFocusRequest() }
     }
 
-    private func section(_ horizon: TaskHorizon) -> some View {
+    private func section(_ horizon: TaskHorizon, scrollProxy: ScrollViewProxy) -> some View {
         let rows = entries(for: horizon)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 5) {
@@ -156,6 +124,8 @@ struct ChecklistPane: View {
                                  if collapsedParents.contains(entry.id) { collapsedParents.remove(entry.id) }
                                  else { collapsedParents.insert(entry.id) }
                              }, open: { openTask(entry.id) })
+                .id(entry.id)
+                .environment(\.bistFocusReveal, { scrollProxy.scrollTo(entry.id, anchor: .center) })
                 .contextMenu {
                     Button("Open details") { openTask(entry.id) }
                     Button(entry.task.completed ? "Mark mine unfinished" : "Mark mine done") {
@@ -204,52 +174,59 @@ private struct TaskComposer: View {
     @FocusState private var nameFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
             if let parentID = draft.parentID {
                 Label("Subtask of \(store.tasks.first(where: { $0.id == parentID })?.title ?? "task")", systemImage: "arrow.turn.down.right")
-                    .font(.system(size: 9)).foregroundColor(muted).lineLimit(1)
+                    .font(.system(size: 8)).foregroundColor(muted).lineLimit(1)
             } else if draft.expanded && draft.horizon == .longerTerm {
-                Text("Longer term").font(.system(size: 9)).foregroundColor(muted)
+                Text("Longer term").font(.system(size: 8)).foregroundColor(muted)
             }
-            HStack(spacing: 8) {
-                Image(systemName: "plus").font(.system(size: 11)).foregroundColor(violet)
-                TextField(draft.parentID == nil ? "Add a task" : "Add a subtask", text: $draft.title)
-                    .textFieldStyle(.plain).font(.system(size: 12)).focused($nameFocused).onSubmit(submit)
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "plus").font(.system(size: 10)).foregroundColor(violet).frame(height: 25)
+                TextField(draft.parentID == nil ? "Add a task" : "Add a subtask", text: $draft.title, axis: .vertical)
+                    .textFieldStyle(.plain).font(.system(size: 12)).lineLimit(1...3).fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 5).focused($nameFocused).onSubmit(submit)
                     .accessibilityLabel("Task name")
-                if !draft.expanded { Text("⌘N").font(.system(size: 9)).foregroundColor(muted) }
-            }.frame(height: 25)
+                if draft.expanded {
+                    BistButton { draft.cancel(); nameFocused = false } label: {
+                        Image(systemName: "xmark").font(.system(size: 8)).frame(width: 20, height: 25)
+                    }.buttonStyle(.plain).foregroundColor(muted).help("Cancel task").accessibilityLabel("Cancel task")
+                    BistButton(action: submit) {
+                        Image(systemName: "arrow.turn.down.left").font(.system(size: 10, weight: .medium)).frame(width: 23, height: 25)
+                    }.buttonStyle(.plain).foregroundColor(violet).help("Add task · Return").accessibilityLabel("Add task")
+                        .disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                } else {
+                    Text("⌘N").font(.system(size: 9)).foregroundColor(muted).frame(height: 25)
+                    BistButton { draft.detailsExpanded = true } label: {
+                        Image(systemName: "chevron.down").font(.system(size: 8)).frame(width: 23, height: 25)
+                    }.buttonStyle(.plain).foregroundColor(muted).accessibilityLabel("Show optional task details")
+                }
+            }
             if draft.expanded {
-                HStack(spacing: 13) {
-                    BistButton {
-                        draft.detailsExpanded.toggle()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: draft.detailsExpanded ? "chevron.down" : "chevron.right").font(.system(size: 8))
+                HStack(spacing: 7) {
+                    BistButton { draft.detailsExpanded.toggle() } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: draft.detailsExpanded ? "chevron.down" : "chevron.right").font(.system(size: 7))
                             Text("Details").font(.system(size: 10))
-                        }.frame(height: 25)
+                        }.frame(height: 23)
                     }.buttonStyle(.plain).foregroundColor(muted).accessibilityLabel("\(draft.detailsExpanded ? "Hide" : "Show") optional details")
                     TaskTagPicker(store: store, selectedIDs: $draft.labelIDs,
-                                  newLabelName: $draft.newLabelName, creatingLabel: $draft.creatingLabel)
+                                  newLabelName: $draft.newLabelName, creatingLabel: $draft.creatingLabel, compact: true)
+                    AgentHelpToggle(isOn: $draft.agentHelpRequested, compact: true)
                     Spacer(minLength: 0)
-                }
+                }.frame(height: 25)
                 if draft.detailsExpanded {
                     TextEditor(text: $draft.details).font(.system(size: 11)).scrollContentBackground(.hidden)
                         .frame(height: 42).padding(6).background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
                         .accessibilityLabel("Optional task details")
                 }
-                AgentHelpToggle(isOn: $draft.agentHelpRequested)
-                HStack {
-                    BistButton("Cancel") { draft.cancel(); nameFocused = false }
-                        .buttonStyle(.plain).font(.system(size: 10)).foregroundColor(muted)
-                    Spacer()
-                    BistButton("Add task", action: submit).buttonStyle(TactileStyle(accent: true, compact: true))
-                        .font(.system(size: 11)).disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
             }
-        }.padding(10)
-            .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(nameFocused ? violet.opacity(0.5) : .white.opacity(0.8), lineWidth: 0.8))
-            .onChange(of: nameFocused) { if nameFocused { draft.expanded = true } }
+        }.padding(.horizontal, 9).padding(.vertical, 5)
+            .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(nameFocused ? violet.opacity(0.5) : .white.opacity(0.8), lineWidth: 0.8))
+            .onChange(of: draft.expanded) {
+                if !draft.expanded { draft.detailsExpanded = false; draft.creatingLabel = false }
+            }
             .onAppear {
                 draft.reconcileLabels(available: Set(store.labels.map(\.id)))
                 consumeFocus()
@@ -266,27 +243,27 @@ private struct TaskComposer: View {
         guard draft.consumeFocus() else { return }
         let request = draft.focusRequest
         DispatchQueue.main.async {
-            if draft.focusRequest == request && draft.expanded { nameFocused = true }
+            if draft.focusRequest == request { nameFocused = true }
         }
     }
 }
 
 private struct AgentHelpToggle: View {
     @Binding var isOn: Bool
+    var compact = false
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            BistButton {
-                isOn.toggle()
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "sparkles").font(.system(size: 10)).foregroundColor(isOn ? violet : muted)
-                    Text("Agent help").font(.system(size: 11))
-                    Spacer()
-                    Capsule().fill(isOn ? violet : muted.opacity(0.25)).frame(width: 28, height: 16)
-                        .overlay(Circle().fill(.white).frame(width: 12, height: 12).offset(x: isOn ? 6 : -6))
-                }.frame(height: 25).contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel("Agent help").accessibilityValue(isOn ? "On. Request saved for later; not connected." : "Off")
-            if isOn { Text("Not connected · saved for later").font(.system(size: 9)).foregroundColor(muted) }
+            BistButton { isOn.toggle() } label: {
+                HStack(spacing: compact ? 4 : 7) {
+                    if !compact { Image(systemName: "sparkles").font(.system(size: 10)).foregroundColor(isOn ? violet : muted) }
+                    Text("Agent help").font(.system(size: compact ? 10 : 11)).fixedSize()
+                    if !compact { Spacer() }
+                    Capsule().fill(isOn ? violet : muted.opacity(0.25)).frame(width: compact ? 23 : 28, height: compact ? 13 : 16)
+                        .overlay(Circle().fill(.white).frame(width: compact ? 9 : 12, height: compact ? 9 : 12).offset(x: isOn ? 5 : -5))
+                }.frame(height: compact ? 23 : 25).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel("Agent help").accessibilityValue(isOn ? "On in draft; not connected." : "Off")
+                .help("Agent-help intent is saved with the task. No agent is connected.")
+            if isOn && !compact { Text("Not connected · save changes to keep this request").font(.system(size: 9)).foregroundColor(muted) }
         }
     }
 }
@@ -300,8 +277,8 @@ private struct TaskTagPicker: View {
     @Binding var selectedIDs: [UUID]
     @Binding var newLabelName: String
     @Binding var creatingLabel: Bool
+    var compact = false
     @State private var presented = false
-    @FocusState private var newLabelFocused: Bool
     private var selected: [TaskLabel] { store.labels.filter { selectedIDs.contains($0.id) } }
     var body: some View {
         BistButton {
@@ -311,8 +288,9 @@ private struct TaskTagPicker: View {
             HStack(spacing: 5) {
                 Image(systemName: "tag").font(.system(size: 10))
                 Text(selected.isEmpty ? "Tag" : selected.map(\.name).joined(separator: ", ")).font(.system(size: 10)).lineLimit(1)
+                    .truncationMode(.tail).frame(maxWidth: compact ? 55 : nil, alignment: .leading)
                 Image(systemName: "chevron.down").font(.system(size: 7, weight: .semibold))
-            }.padding(.horizontal, 8).frame(height: 25)
+            }.padding(.horizontal, compact ? 6 : 8).frame(width: compact ? 88 : nil, height: compact ? 23 : 25)
                 .background((selected.first?.color.tint ?? violet).opacity(0.10), in: Capsule())
         }.buttonStyle(.plain).foregroundColor(selected.first?.color.tint ?? muted)
             .accessibilityLabel("Choose tags").accessibilityValue(selected.map(\.name).joined(separator: ", "))
@@ -339,18 +317,12 @@ private struct TaskTagPicker: View {
                                         .background(selectedIDs.contains(label.id) ? label.color.tint.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
                                 }.buttonStyle(.plain).accessibilityLabel(label.name).accessibilityValue(selectedIDs.contains(label.id) ? "Selected" : "Not selected")
                             }
-                        }
+                        }.background(OverlayScrollStyle())
                     }.frame(height: min(174, CGFloat(max(1, store.labels.count)) * 31))
                     if creatingLabel {
-                        HStack(spacing: 6) {
-                            TextField("New label name", text: $newLabelName).textFieldStyle(.plain).font(.system(size: 11))
-                                .padding(7).background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
-                                .focused($newLabelFocused).onSubmit(createLabel).accessibilityLabel("New label name")
-                            BistButton("Create", action: createLabel).buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundColor(violet)
-                                .disabled(newLabelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
+                        NewTagEntry(name: $newLabelName, create: createLabel)
                     } else {
-                        BistButton { creatingLabel = true; newLabelFocused = true } label: { Label("New label", systemImage: "plus").font(.system(size: 10)) }
+                        BistButton { creatingLabel = true } label: { Label("New label", systemImage: "plus").font(.system(size: 10)) }
                             .buttonStyle(.plain).foregroundColor(violet)
                     }
                     if let error = store.storeError { Text(error).font(.system(size: 9)).foregroundColor(.red).fixedSize(horizontal: false, vertical: true) }
@@ -372,6 +344,29 @@ private struct TaskTagPicker: View {
             if !selectedIDs.contains(label.id) { selectedIDs.append(label.id) }
             newLabelName = ""; creatingLabel = false
         }
+    }
+}
+
+/// Focus state lives inside the popover's own hosting hierarchy.
+private struct NewTagEntry: View {
+    @Binding var name: String
+    let create: () -> Void
+    @FocusState private var focused: Bool
+    @State private var isMounted = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            TextField("New label name", text: $name).textFieldStyle(.plain).font(.system(size: 11))
+                .padding(7).background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+                .focused($focused).onSubmit(create).accessibilityLabel("New label name")
+            BistButton("Create", action: create).buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundColor(violet)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .onAppear {
+            isMounted = true
+            DispatchQueue.main.async { if isMounted { focused = true } }
+        }
+        .onDisappear { isMounted = false }
     }
 }
 
@@ -415,7 +410,7 @@ private struct CompactSelection<Value: Hashable>: View {
                                         .background(selection == option.id ? violet.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 6))
                                 }.buttonStyle(.plain).accessibilityValue(selection == option.id ? "Selected" : "Not selected")
                             }
-                        }
+                        }.background(OverlayScrollStyle())
                     }.frame(height: min(216, CGFloat(options.count) * 31))
                     BistButton("Cancel") { presented = false }.buttonStyle(.plain).font(.system(size: 10)).foregroundColor(muted)
                 }.padding(12).frame(width: 270).foregroundColor(ink)
@@ -438,23 +433,30 @@ private struct TaskHistoryPane: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(store.completedHistory) { task in
-                        BistButton { openTask(task.id) } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "checkmark").font(.system(size: 10, weight: .medium)).foregroundColor(violet)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(task.title).font(.system(size: 11)).lineLimit(1)
-                                    Text(task.completedAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Completion date unknown")
-                                        .font(.system(size: 9)).foregroundColor(muted)
-                                }
-                                Spacer()
-                                AgentDoneMark(task: task)
-                            }.padding(.horizontal, 6).padding(.vertical, 7).contentShape(Rectangle())
-                        }.buttonStyle(.plain)
+                        HStack(spacing: 8) {
+                            BistButton { openTask(task.id) } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "checkmark").font(.system(size: 10, weight: .medium)).foregroundColor(violet)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(task.title).font(.system(size: 11)).lineLimit(1)
+                                        Text(task.completedAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Completion date unknown")
+                                            .font(.system(size: 9)).foregroundColor(muted)
+                                    }
+                                    Spacer()
+                                    AgentDoneMark(task: task)
+                                }.padding(.vertical, 7).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                            BistButton {
+                                _ = store.setUserCompletion(id: task.id, completed: false)
+                            } label: {
+                                Image(systemName: "arrow.uturn.backward").font(.system(size: 11)).frame(width: 26, height: 26)
+                            }.buttonStyle(.plain).accessibilityLabel("Reopen \(task.title)")
+                        }.padding(.horizontal, 6)
                             .contextMenu { Button("Mark mine unfinished") { _ = store.setUserCompletion(id: task.id, completed: false) } }
                     }
                     if store.completedHistory.isEmpty { Text("Completed tasks will appear here.").font(.system(size: 11)).foregroundColor(muted).padding(.top, 22) }
                 }
-            }.scrollIndicators(.hidden)
+            }
             TaskUndoLine(store: store)
         }.padding(.horizontal, 20).padding(.bottom, 19)
     }
@@ -589,7 +591,7 @@ private struct TaskInspectorContent: View {
     @State private var localError: String?
 
     private var task: TaskItem? { store.tasks.first { $0.id == taskID } }
-    private var subtasks: [TaskItem] { store.tasks.filter { $0.parentID == taskID } }
+    private var subtasks: [TaskItem] { ActiveChecklist(tasks: store.tasks, collapsedParents: []).children(of: taskID) }
     private var parentChoices: [TaskItem] {
         var descendants: Set<UUID> = [taskID]
         var changed = true
@@ -658,10 +660,10 @@ private struct TaskInspectorContent: View {
                                 BistButton("Manage labels") { showLabels = true }.buttonStyle(.plain).font(.system(size: 10)).foregroundColor(violet)
                             }
                         }.padding(.bottom, 10)
-                    }.scrollIndicators(.hidden)
+                    }
                     if let error = localError ?? store.storeError { Text(error).font(.system(size: 10)).foregroundColor(.red).padding(.top, 5) }
                     HStack {
-                        Text("Tags and settings save as you choose.").font(.system(size: 8)).foregroundColor(muted)
+                        Text("Tags save immediately; text and agent help need Save.").font(.system(size: 8)).foregroundColor(muted)
                         Spacer()
                         BistButton("Save changes") { save() }.buttonStyle(TactileStyle(accent: true, compact: true))
                             .font(.system(size: 11)).disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -804,7 +806,7 @@ private struct TaskLabelManager: View {
                     }
                     if store.labels.isEmpty { Text("Add your first label below.").font(.system(size: 11)).foregroundColor(muted).padding(.vertical, 20) }
                 }
-            }.scrollIndicators(.hidden)
+            }
             Text(editingID == nil ? "New label" : "Edit label").font(.system(size: 10, weight: .medium)).foregroundColor(muted)
             TextField("Label name", text: $name).textFieldStyle(.plain).font(.system(size: 12)).padding(9)
                 .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 8)).focused($nameFocused).onSubmit(save).accessibilityLabel("Label name")
