@@ -168,7 +168,7 @@ private struct HoverTaskPreview: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private let ink = Color(red: 0.18, green: 0.17, blue: 0.23)
     private let secondary = Color(red: 0.40, green: 0.38, blue: 0.46)
-    private let violet = Color(red: 0.47, green: 0.37, blue: 0.73)
+    private let accent = Color(red: 0.47, green: 0.37, blue: 0.73)
     private var selection: PreviewTaskSelection<TaskItem> {
         PreviewTaskSelection(store.tasks, isOutstanding: { !$0.completed }, isShortTerm: { $0.horizon == .shortTerm })
     }
@@ -209,7 +209,7 @@ private struct HoverTaskPreview: View {
                 ZStack {
                     PreviewGlass(opaque: solid)
                     Color(red: 0.97, green: 0.96, blue: 0.94).opacity(solid ? 1 : 0.10)
-                    if !solid { LinearGradient(colors: [.white.opacity(0.14), violet.opacity(0.015)], startPoint: .topLeading, endPoint: .bottomTrailing) }
+                    if !solid { LinearGradient(colors: [.white.opacity(0.14), accent.opacity(0.015)], startPoint: .topLeading, endPoint: .bottomTrailing) }
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -245,7 +245,7 @@ private struct HoverTaskPreview: View {
             let value = UInt64(label.color.hex.dropFirst(), radix: 16) ?? 0x7567B7
             return Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
         }
-        return violet
+        return accent
     }
 }
 

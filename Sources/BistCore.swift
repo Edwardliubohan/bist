@@ -19,6 +19,12 @@ enum TaskHorizon: String, Codable, CaseIterable, Identifiable {
     var title: String { self == .shortTerm ? "Short term" : "Longer term" }
 }
 
+/// The whole dragged subtree travels together. A list drop promotes it to a
+/// root; a row drop either nests it or gives it the target's parent and order.
+enum TaskPlacement: Equatable {
+    case list(TaskHorizon), inside(UUID), before(UUID), after(UUID)
+}
+
 enum TaskLabelColor: String, Codable, CaseIterable, Identifiable {
     case lavender, blue, green, amber, rose, gray
     var id: String { rawValue }
@@ -43,7 +49,7 @@ struct TaskLabel: Codable, Identifiable, Equatable {
     // never automatically assigned to an existing or newly created task.
     static let defaults = [
         TaskLabel(id: UUID(uuidString: "C4502D0B-E7AB-48B3-A073-50040F539E26")!, name: "School", color: .blue),
-        TaskLabel(id: UUID(uuidString: "73CC5AE9-F640-4BE8-9BD8-AE80128EAA74")!, name: "Class", color: .lavender),
+        TaskLabel(id: UUID(uuidString: "73CC5AE9-F640-4BE8-9BD8-AE80128EAA74")!, name: "Class", color: .amber),
         TaskLabel(id: UUID(uuidString: "0090A4D6-EF0E-447F-8CE6-8B383AEAE701")!, name: "Koan", color: .green)
     ]
 }
@@ -439,6 +445,73 @@ final class AppStore: ObservableObject {
             value.tasks[index].parentID = parentID
             for descendantIndex in value.tasks.indices where descendants.contains(value.tasks[descendantIndex].id) {
                 value.tasks[descendantIndex].horizon = inheritedHorizon
+            }
+        }
+    }
+
+    func canMoveTask(id: UUID, to placement: TaskPlacement) -> Bool {
+        guard tasks.contains(where: { $0.id == id }) else { return false }
+        let descendants = subtreeIDs(rootID: id)
+        switch placement {
+        case .list: return true
+        case .inside(let target), .before(let target), .after(let target):
+            return !descendants.contains(target) && tasks.contains { $0.id == target && !$0.completed }
+        }
+    }
+
+    /// A single validated commit keeps reparenting, group and ordering atomic,
+    /// including on disk failures and undo. Unrelated siblings never move.
+    @discardableResult
+    func moveTask(id: UUID, to placement: TaskPlacement) -> Bool {
+        guard !blockedByUnreadableStore, canMoveTask(id: id, to: placement) else {
+            storeError = "Choose a destination outside this task and its subtasks."; return false
+        }
+        let subtree = subtreeIDs(rootID: id)
+        let target: TaskItem?
+        let parentID: UUID?
+        let horizon: TaskHorizon
+        switch placement {
+        case .list(let group): target = nil; parentID = nil; horizon = group
+        case .inside(let targetID):
+            target = tasks.first { $0.id == targetID }!
+            parentID = targetID; horizon = target!.horizon
+        case .before(let targetID), .after(let targetID):
+            target = tasks.first { $0.id == targetID }!
+            parentID = target!.parentID; horizon = target!.horizon
+        }
+        var moved = tasks.filter { subtree.contains($0.id) }
+        for index in moved.indices {
+            moved[index].horizon = horizon
+            if moved[index].id == id { moved[index].parentID = parentID }
+        }
+        var remaining = tasks.filter { !subtree.contains($0.id) }
+        let insertion: Int
+        switch placement {
+        case .before:
+            insertion = remaining.firstIndex { $0.id == target!.id }!
+        case .inside, .after:
+            let targetTree = subtreeIDs(rootID: target!.id)
+            insertion = (remaining.lastIndex { targetTree.contains($0.id) } ?? remaining.count - 1) + 1
+        case .list:
+            insertion = (remaining.lastIndex { $0.horizon == horizon } ?? remaining.count - 1) + 1
+        }
+        remaining.insert(contentsOf: moved, at: insertion)
+        guard remaining != tasks else { storeError = nil; return true }
+        return commit(label: "Task moved") { $0.tasks = remaining }
+    }
+
+    /// Deleting a parent preserves its children at the closest retained parent.
+    /// Deleting the subtree is a separate, explicit action. Both are undoable.
+    @discardableResult
+    func deleteTask(id: UUID, includingSubtasks: Bool = false) -> Bool {
+        guard !blockedByUnreadableStore, let task = tasks.first(where: { $0.id == id }) else { return false }
+        let removed = includingSubtasks ? subtreeIDs(rootID: id) : [id]
+        return commit(label: includingSubtasks ? "Task and subtasks deleted" : "Task deleted") { value in
+            value.tasks.removeAll { removed.contains($0.id) }
+            if !includingSubtasks {
+                for index in value.tasks.indices where value.tasks[index].parentID == id {
+                    value.tasks[index].parentID = task.parentID
+                }
             }
         }
     }

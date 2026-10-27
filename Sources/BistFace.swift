@@ -8,7 +8,7 @@ struct BistFace: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
 
     private var motionDisabled: Bool { reduceMotion || systemReduceMotion }
-    private var response: Double { !motionDisabled && !isExpanded && isHovered ? 3 : 0 }
+    private var response: Double { !motionDisabled && !isExpanded && isHovered ? 9 : 0 }
 
     var body: some View {
         ZStack {

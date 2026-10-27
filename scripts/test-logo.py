@@ -53,8 +53,13 @@ for stop in gradient:
 assert [stop.attrib["offset"] for stop in gradient] == ["0", "0.5", "1"]
 assert ".easeOut(duration: 0.16)" in native
 assert "reduceMotion || systemReduceMotion" in native
-assert "!motionDisabled && !isExpanded && isHovered ? 3 : 0" in native
+assert "!motionDisabled && !isExpanded && isHovered ? 9 : 0" in native
 assert "transaction.disablesAnimations = true" in native
+animated = ET.parse(root / "Assets/bist-mark-animated.svg").getroot()
+assert [p.attrib["d"] for p in animated.findall(".//svg:path", namespace)] == [p.attrib["d"] for p in svg.findall(".//svg:path", namespace)]
+assert not any(e.tag.split("}")[-1] in {"script", "image", "foreignObject"} for e in animated.iter())
+assert all(not key.endswith("href") for element in animated.iter() for key in element.attrib)
+assert "prefers-reduced-motion" in animated.find("svg:style", namespace).text
 print("SVG/native/export path, stroke, gradient, accessibility, and motion contracts pass", flush=True)
 
 subprocess.run(["xcrun", "swift", "-module-cache-path", str(root / "build/module-cache"),

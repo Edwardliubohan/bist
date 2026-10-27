@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 /// Hidden panels exercise the real delegate without sending desktop input events.
 @main
@@ -55,6 +56,16 @@ struct PanelLifecycleTests {
         expect(delegate.compactOrigin == CGPoint(x: compact.minX - 8, y: compact.minY), "Release position determines saved origin")
         expect(FileManager.default.fileExists(atPath: delegate.positionURL.path), "Drag persists position in isolated store")
         expect(delegate.panel.frame.size == CornerLayout.compactSize, "Released compact drag stays 48 by 48")
+        // Hidden full-size pages must not impose their minimum size on the
+        // compact host; this previously cropped the corner mark out entirely.
+        let host = GlassHostingView(rootView: BistView(store: delegate.store, state: delegate.state, directory: directory))
+        host.sizingOptions = []
+        delegate.panel.contentView = host
+        delegate.state.reveal = 0
+        delegate.panel.setFrame(compact, display: false)
+        host.layoutSubtreeIfNeeded()
+        expect(host.fittingSize.width <= CornerLayout.compactSize.width && host.fittingSize.height <= CornerLayout.compactSize.height, "Hidden open page cannot enlarge compact layout")
+        expect(host.frame.size == CornerLayout.compactSize, "Actual compact host remains 48 by 48")
         print("PASS: \(checks) native panel lifecycle checks")
     }
 }

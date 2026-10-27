@@ -15,7 +15,7 @@ struct AgentResultsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 BistButton(action: close) { Label("Back", systemImage: "chevron.left").font(.system(size: 11)) }
-                    .buttonStyle(.plain).foregroundColor(violet)
+                    .buttonStyle(.plain).foregroundColor(accent)
                 Spacer()
                 BistButton("Reload", action: load).buttonStyle(.plain).font(.system(size: 11)).foregroundColor(muted)
             }
@@ -54,7 +54,7 @@ struct AgentResultsView: View {
                 BistButton { NSWorkspace.shared.open(url) } label: {
                     Label("Review output at \(url.host ?? "source")", systemImage: "arrow.up.right")
                         .font(.system(size: 11)).lineLimit(1)
-                }.buttonStyle(.plain).foregroundColor(violet).help(result.artifactURL)
+                }.buttonStyle(.plain).foregroundColor(accent).help(result.artifactURL)
                     .accessibilityLabel("Review output: \(result.artifactURL)")
             }
             Text("Submitted observation: \(result.observedAt.formatted(date: .abbreviated, time: .shortened))")
@@ -71,14 +71,14 @@ struct AgentResultsView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: reviewed.contains(result.id) ? "checkmark.square.fill" : "square")
-                            .foregroundColor(reviewed.contains(result.id) ? violet : muted)
+                            .foregroundColor(reviewed.contains(result.id) ? accent : muted)
                         Text("I reviewed this output")
                     }.font(.system(size: 11)).padding(.vertical, 3)
                 }.buttonStyle(.plain).disabled(mismatch != nil)
                     .accessibilityLabel("I reviewed this output")
                     .accessibilityValue(reviewed.contains(result.id) ? "Checked" : "Unchecked")
                 BistButton("Mark agent done") { accept(result) }
-                    .buttonStyle(TactileStyle(accent: true, compact: true))
+                    .buttonStyle(TactileStyle(prominent: true, compact: true))
                     .disabled(!reviewed.contains(result.id) || mismatch != nil)
                     .opacity(reviewed.contains(result.id) && mismatch == nil ? 1 : 0.5)
             }

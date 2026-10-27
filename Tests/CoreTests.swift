@@ -460,6 +460,50 @@ struct CoreTests {
         let invalidOpenTimestamp = TaskItem(title: "Open with impossible completion date", completedAt: Date(timeIntervalSince1970: 100))
         let invalidOpenTimestampRejected = try rejectsSnapshot(BistSnapshot(tasks: [invalidOpenTimestamp]), "invalid-open-completion-time")
         expect(invalidOpenTimestampRejected, "persisted open task cannot carry a completion timestamp")
+        // Outliner moves are atomic and carry descendants, never unrelated siblings.
+        let moving = AppStore(directory: root.appendingPathComponent("moving"))
+        expect(moving.addTask(title: "A") && moving.addTask(title: "B") && moving.addTask(title: "C", horizon: .longerTerm), "move fixtures added")
+        let a = moving.tasks[0].id, b = moving.tasks[1].id, c = moving.tasks[2].id
+        expect(moving.addTask(title: "A child", parentID: a), "move child added")
+        let child = moving.tasks.last!.id
+        expect(moving.addTask(title: "Grandchild", parentID: child), "move grandchild added")
+        let grandchild = moving.tasks.last!.id
+        let originalTree = moving.tasks
+        expect(moving.moveTask(id: child, to: .list(.longerTerm)), "child can move independently to another list")
+        expect(moving.tasks.first { $0.id == child }?.parentID == nil, "list drop promotes dragged child")
+        expect(moving.tasks.first { $0.id == grandchild }?.horizon == .longerTerm, "descendant follows moved child")
+        expect(moving.tasks.first { $0.id == a }?.horizon == .shortTerm, "old parent stays in its own list")
+        expect(moving.undo() && moving.tasks == originalTree, "entire subtree move has one exact undo")
+        expect(moving.moveTask(id: a, to: .inside(c)), "cross-list nesting succeeds")
+        expect(moving.tasks.filter { [a, child, grandchild].contains($0.id) }.allSatisfy { $0.horizon == .longerTerm }, "nested subtree inherits destination list")
+        let nestedTree = moving.tasks
+        expect(!moving.canMoveTask(id: c, to: .inside(grandchild)), "descendant nesting disabled")
+        expect(!moving.moveTask(id: c, to: .before(child)) && moving.tasks == nestedTree, "cycle through sibling destination rejected without mutation")
+        expect(!moving.moveTask(id: a, to: .inside(a)), "self drop rejected")
+        expect(!moving.moveTask(id: a, to: .before(UUID())), "missing destination rejected")
+        expect(moving.moveTask(id: a, to: .before(b)), "row edge moves subtree to target siblings")
+        expect(moving.tasks.first { $0.id == a }?.parentID == nil, "sibling move uses destination parent")
+        expect(moving.tasks.firstIndex { $0.id == a }! < moving.tasks.firstIndex { $0.id == b }!, "before drop preserves intended order")
+        expect(moving.moveTask(id: b, to: .after(a)), "after drop succeeds")
+        let afterTree = moving.tasks
+        let movedReload = AppStore(directory: moving.directory)
+        expect(movedReload.tasks.map(\.id) == afterTree.map(\.id) && zip(movedReload.tasks, afterTree).allSatisfy { $0.parentID == $1.parentID && $0.horizon == $1.horizon }, "move persists order and hierarchy")
+        expect(moving.deleteTask(id: a), "delete parent succeeds")
+        expect(moving.tasks.contains { $0.id == child && $0.parentID == nil }, "default delete preserves and promotes children")
+        expect(moving.tasks.contains { $0.id == grandchild && $0.parentID == child }, "delete preserves deeper hierarchy")
+        expect(moving.undo() && moving.tasks == afterTree, "delete restores tree and exact order with undo")
+        expect(moving.deleteTask(id: a, includingSubtasks: true), "explicit subtree deletion succeeds")
+        expect(!moving.tasks.contains { [a, child, grandchild].contains($0.id) }, "subtree deletion removes exactly the selected tree")
+        expect(moving.tasks.contains { $0.id == b } && moving.tasks.contains { $0.id == c }, "subtree deletion retains other tasks")
+        expect(moving.undo() && moving.tasks == afterTree, "subtree deletion has one undo")
+        let failureMover = AppStore(directory: root.appendingPathComponent("move-write-failure"))
+        expect(failureMover.addTask(title: "Retained A") && failureMover.addTask(title: "Retained B"), "write failure fixture added")
+        let failureBefore = failureMover.tasks
+        try FileManager.default.removeItem(at: failureMover.stateURL)
+        try FileManager.default.createDirectory(at: failureMover.stateURL, withIntermediateDirectories: false)
+        expect(!failureMover.moveTask(id: failureBefore[0].id, to: .inside(failureBefore[1].id)) && failureMover.tasks == failureBefore, "failed move persistence leaves memory unchanged")
+        expect(!failureMover.deleteTask(id: failureBefore[0].id) && failureMover.tasks == failureBefore, "failed delete persistence leaves memory unchanged")
+
         print("PASS: \(checks) core checks")
     }
 }

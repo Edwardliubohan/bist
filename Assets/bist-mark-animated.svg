@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-labelledby="bist-title bist-description">
+  <title id="bist-title">bist</title>
+  <desc id="bist-description">Two opposing rounded orange arcs form a compact orbit with open diagonal space.</desc>
+  <style>
+    #orbit-upper, #orbit-lower {
+      transform-origin: 12px 12px;
+      transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+    }
+    @media (hover: hover) and (pointer: fine) {
+      svg:hover #orbit-upper { transform: rotate(9deg); }
+      svg:hover #orbit-lower { transform: rotate(-9deg); }
+    }
+    svg:active #orbit-upper { transform: rotate(45deg); }
+    svg:active #orbit-lower { transform: rotate(45deg); }
+    @media (prefers-reduced-motion: reduce) {
+      #orbit-upper, #orbit-lower { transition: none; transform: none !important; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="bist-orange" gradientUnits="userSpaceOnUse" x1="4" y1="3" x2="20" y2="21" color-interpolation="sRGB">
+      <stop offset="0" stop-color="#FFC28A"/>
+      <stop offset="0.5" stop-color="#F58A3D"/>
+      <stop offset="1" stop-color="#C9531B"/>
+    </linearGradient>
+  </defs>
+  <g id="bist-orbit" fill="none" stroke="url(#bist-orange)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+    <g id="orbit-upper">
+      <path d="M 8.25 5.504809 C 10.570508 4.165064 13.429492 4.165064 15.75 5.504809 C 18.070508 6.844555 19.5 9.320508 19.5 12"/>
+    </g>
+    <g id="orbit-lower">
+      <path d="M 15.75 18.495191 C 13.429492 19.834936 10.570508 19.834936 8.25 18.495191 C 5.929492 17.155445 4.5 14.679492 4.5 12"/>
+    </g>
+  </g>
+</svg>

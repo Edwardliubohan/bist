@@ -25,11 +25,11 @@ private struct BistFocusRevealKey: EnvironmentKey { static let defaultValue: () 
 extension EnvironmentValues { var bistReduced: Bool { get { self[BistReducedKey.self] } set { self[BistReducedKey.self] = newValue } } }
 extension EnvironmentValues { var bistFocusReveal: () -> Void { get { self[BistFocusRevealKey.self] } set { self[BistFocusRevealKey.self] = newValue } } }
 
-let ink = Color(red: 0.18, green: 0.17, blue: 0.23)
-let muted = Color(red: 0.43, green: 0.41, blue: 0.49)
-let violet = Color(red: 0.47, green: 0.37, blue: 0.73)
+let ink = Color(red: 0.16, green: 0.12, blue: 0.09)
+let muted = Color(red: 0.34, green: 0.28, blue: 0.23)
+let accent = Color(red: 0.64, green: 0.24, blue: 0.055)
 let cornerOrange = Color(red: 0.94, green: 0.36, blue: 0.12)
-let ivory = Color(red: 0.97, green: 0.96, blue: 0.94)
+let ivory = Color(red: 0.99, green: 0.97, blue: 0.94)
 
 private struct BistPointingHand: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
@@ -100,7 +100,7 @@ private struct BistButtonFocus: ViewModifier {
                 if ButtonFocusPolicy.showsRing(focused: focused, keyboardNavigation: focusContext.keyboardNavigation) {
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
                         .inset(by: 2)
-                        .strokeBorder(violet.opacity(0.85), lineWidth: 1.5)
+                        .strokeBorder(accent.opacity(0.85), lineWidth: 1.5)
                         .allowsHitTesting(false).accessibilityHidden(true)
                 }
             }
@@ -149,18 +149,18 @@ struct PanelNavigationButton: View {
 }
 
 struct TactileStyle: ButtonStyle {
-    var accent = false
+    var prominent = false
     var compact = false
     @Environment(\.accessibilityReduceMotion) var reduce
     @Environment(\.bistReduced) var localReduce
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundColor(accent ? .white : ink)
+            .foregroundColor(prominent ? .white : ink)
             .padding(.horizontal, compact ? 8 : 12).padding(.vertical, compact ? 7 : 9)
-            .background(RoundedRectangle(cornerRadius: compact ? 9 : 12, style: .continuous).fill(accent ? AnyShapeStyle(LinearGradient(colors: [Color(red: 0.62, green: 0.51, blue: 0.84), violet], startPoint: .top, endPoint: .bottom)) : AnyShapeStyle(Color.white.opacity(configuration.isPressed ? 0.35 : 0.62))))
-            .overlay(RoundedRectangle(cornerRadius: compact ? 9 : 12, style: .continuous).strokeBorder(.white.opacity(accent ? 0.25 : 0.8), lineWidth: 0.8))
-            .shadow(color: (accent ? violet : .black).opacity(configuration.isPressed ? 0.03 : 0.10), radius: configuration.isPressed ? 1 : 3, x: 0, y: configuration.isPressed ? 0 : 2)
+            .background(RoundedRectangle(cornerRadius: compact ? 9 : 12, style: .continuous).fill(prominent ? AnyShapeStyle(LinearGradient(colors: [Color(red: 0.73, green: 0.29, blue: 0.08), accent], startPoint: .top, endPoint: .bottom)) : AnyShapeStyle(Color.white.opacity(configuration.isPressed ? 0.35 : 0.62))))
+            .overlay(RoundedRectangle(cornerRadius: compact ? 9 : 12, style: .continuous).strokeBorder(.white.opacity(prominent ? 0.25 : 0.8), lineWidth: 0.8))
+            .shadow(color: (prominent ? accent : .black).opacity(configuration.isPressed ? 0.03 : 0.10), radius: configuration.isPressed ? 1 : 3, x: 0, y: configuration.isPressed ? 0 : 2)
             .scaleEffect(configuration.isPressed && !(reduce || localReduce) ? 0.97 : 1)
             .animation(reduce || localReduce ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
             .contentShape(RoundedRectangle(cornerRadius: 12))
