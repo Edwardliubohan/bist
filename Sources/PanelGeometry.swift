@@ -18,8 +18,8 @@ struct PreviewTaskSelection<Element> {
         let active = items.filter(isOutstanding)
         let short = active.filter(isShortTerm)
         let long = active.filter { !isShortTerm($0) }
-        shortTerm = short
-        longerTerm = long
+        shortTerm = Array(short.prefix(15))
+        longerTerm = Array(long.prefix(15 - shortTerm.count))
         outstandingCount = active.count
     }
 }
