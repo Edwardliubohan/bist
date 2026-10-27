@@ -5,6 +5,7 @@ mkdir -p build/bist.app/Contents/MacOS build/bist.app/Contents/Resources build/m
 xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" -target arm64-apple-macosx14.0 Sources/*.swift -o build/bist.app/Contents/MacOS/bist
 xcrun swift -module-cache-path "$PWD/build/module-cache" scripts/make-icon.swift build/BrandAssets
 cp build/BrandAssets/bist.icns build/bist.app/Contents/Resources/bist.icns
+cp Assets/bist-mark.svg build/bist.app/Contents/Resources/bist-mark.svg
 cat > build/bist.app/Contents/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

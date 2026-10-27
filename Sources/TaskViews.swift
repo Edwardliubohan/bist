@@ -25,38 +25,27 @@ struct ChecklistPane: View {
         get { viewState.showLabels }
         nonmutating set { viewState.showLabels = newValue }
     }
-    private var children: [UUID: [TaskItem]] {
-        Dictionary(grouping: store.tasks.filter { $0.parentID != nil }, by: { $0.parentID! })
-    }
     private func entries(for horizon: TaskHorizon) -> [ChecklistEntry] {
         ActiveChecklist(tasks: store.tasks, collapsedParents: collapsedParents).entries(for: horizon)
     }
 
     var body: some View {
-        Group {
+        ZStack {
             if showLabels {
                 TaskLabelManager(store: store) { showLabels = false }
+                    .transition(navigationTransition)
             } else if viewState.showHistory {
                 TaskHistoryPane(store: store, openTask: openTask) { viewState.showHistory = false }
+                    .transition(navigationTransition)
             } else {
                 VStack(spacing: 0) {
                     HStack(spacing: 8) {
-                        Text("Your tasks").font(.system(size: 10, weight: .medium)).foregroundColor(muted)
                         if store.tasks.contains(where: \.isSample) {
                             Text("Sample").font(.system(size: 8)).foregroundColor(violet)
                         }
-                        Spacer()
-                        BistButton { viewState.showHistory = true } label: {
-                            Image(systemName: "clock.arrow.circlepath").font(.system(size: 11)).frame(width: 24, height: 24)
-                        }.buttonStyle(.plain).foregroundColor(muted).help("Past tasks").accessibilityLabel("View past tasks")
-                        BistButton { showLabels = true } label: {
-                            Image(systemName: "tag").font(.system(size: 11)).frame(width: 24, height: 24)
-                        }.buttonStyle(.plain).foregroundColor(muted).help("Manage labels").accessibilityLabel("Manage labels")
-                        Menu {
-                            Button("Expand all subtasks") { collapsedParents.removeAll() }
-                            Button("Collapse all subtasks") { collapsedParents = Set(children.keys) }
-                        } label: { Image(systemName: "ellipsis").frame(width: 18, height: 24) }
-                        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().accessibilityLabel("Checklist options")
+                        PanelNavigationButton(title: "Past tasks", symbol: "clock.arrow.circlepath") { viewState.showHistory = true }
+                        PanelNavigationButton(title: "Tags", symbol: "tag") { showLabels = true }
+                        Spacer(minLength: 0)
                     }.padding(.horizontal, 20).padding(.bottom, 7)
                     HStack(spacing: 0) {
                         Text("Me").frame(width: 26).accessibilityLabel("My completion column")
@@ -95,9 +84,12 @@ struct ChecklistPane: View {
                         Spacer()
                         Text("On this Mac · No live sync")
                     }.font(.system(size: 9)).foregroundColor(muted).padding(.horizontal, 21).padding(.top, 9).padding(.bottom, 15)
-                }
+                }.transition(reducedMotion ? .opacity : .offset(x: -18).combined(with: .opacity))
             }
         }
+        .clipped()
+        .animation(reducedMotion ? nil : .easeInOut(duration: 0.22), value: showLabels)
+        .animation(reducedMotion ? nil : .easeInOut(duration: 0.22), value: viewState.showHistory)
         .onAppear(perform: consumeFocusRequest)
         .onChange(of: focusRequest) { consumeFocusRequest() }
     }
@@ -106,7 +98,7 @@ struct ChecklistPane: View {
         let rows = entries(for: horizon)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 5) {
-                Text(horizon.title).font(.system(size: 10, weight: .semibold))
+                Text(horizon.title).font(.system(size: 13, weight: .semibold))
                 Text("\(rows.filter { $0.depth == 0 }.count)").font(.system(size: 9)).foregroundColor(muted)
                 Spacer()
                 BistButton {
@@ -159,6 +151,10 @@ struct ChecklistPane: View {
         }
     }
 
+    private var navigationTransition: AnyTransition {
+        reducedMotion ? .opacity : .offset(x: 24).combined(with: .opacity)
+    }
+
     private func consumeFocusRequest() {
         guard viewState.consumeFocusRequest(focusRequest) else { return }
         showLabels = false
@@ -172,6 +168,7 @@ private struct TaskComposer: View {
     @ObservedObject var draft: TaskCreationDraft
     var onCreated: (UUID?) -> Void = { _ in }
     @FocusState private var nameFocused: Bool
+    @EnvironmentObject private var focusContext: BistFocusContext
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -186,7 +183,7 @@ private struct TaskComposer: View {
                 TextField(draft.parentID == nil ? "Add a task" : "Add a subtask", text: $draft.title, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 12)).lineLimit(1...3).fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 5).focused($nameFocused).onSubmit(submit)
-                    .accessibilityLabel("Task name")
+                    .accessibilityLabel("Task name").bistTextEntry()
                 if draft.expanded {
                     BistButton { draft.cancel(); nameFocused = false } label: {
                         Image(systemName: "xmark").font(.system(size: 8)).frame(width: 20, height: 25)
@@ -216,13 +213,13 @@ private struct TaskComposer: View {
                     Spacer(minLength: 0)
                 }.frame(height: 25)
                 if draft.detailsExpanded {
-                    TextEditor(text: $draft.details).font(.system(size: 11)).scrollContentBackground(.hidden)
+                    TextEditor(text: $draft.details).font(.system(size: 11)).bistTextEntry().scrollContentBackground(.hidden)
                         .frame(height: 42).padding(6).background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
                         .accessibilityLabel("Optional task details")
                 }
             }
         }.padding(.horizontal, 9).padding(.vertical, 5)
-            .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 9))
+            .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(nameFocused ? violet.opacity(0.5) : .white.opacity(0.8), lineWidth: 0.8))
             .onChange(of: draft.expanded) {
                 if !draft.expanded { draft.detailsExpanded = false; draft.creatingLabel = false }
@@ -233,6 +230,7 @@ private struct TaskComposer: View {
             }
             .onChange(of: store.labels.map(\.id)) { draft.reconcileLabels(available: Set(store.labels.map(\.id))) }
             .onChange(of: draft.focusRequest) { consumeFocus() }
+            .onChange(of: focusContext.textDismissGeneration) { nameFocused = false }
     }
     private func submit() {
         guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -242,8 +240,9 @@ private struct TaskComposer: View {
     private func consumeFocus() {
         guard draft.consumeFocus() else { return }
         let request = draft.focusRequest
+        let generation = focusContext.textDismissGeneration
         DispatchQueue.main.async {
-            if draft.focusRequest == request { nameFocused = true }
+            if draft.focusRequest == request && focusContext.textDismissGeneration == generation { nameFocused = true }
         }
     }
 }
@@ -356,7 +355,7 @@ private struct NewTagEntry: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            TextField("New label name", text: $name).textFieldStyle(.plain).font(.system(size: 11))
+            TextField("New label name", text: $name).textFieldStyle(.plain).bistTextEntry().font(.system(size: 11))
                 .padding(7).background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
                 .focused($focused).onSubmit(create).accessibilityLabel("New label name")
             BistButton("Create", action: create).buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundColor(violet)
@@ -427,8 +426,7 @@ private struct TaskHistoryPane: View {
     let close: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
-            BistButton(action: close) { Label("Tasks", systemImage: "chevron.left").font(.system(size: 10, weight: .medium)) }
-                .buttonStyle(.plain).foregroundColor(violet)
+            PanelNavigationButton(title: "Back to tasks", symbol: "chevron.left", action: close)
             HStack { Text("Past tasks").font(.system(size: 17, weight: .medium)); Spacer(); Text("\(store.completedHistory.count)").font(.system(size: 10)).foregroundColor(muted) }
             ScrollView {
                 LazyVStack(spacing: 2) {
@@ -484,7 +482,7 @@ private struct ChecklistRow: View {
             }.buttonStyle(.plain)
                 .accessibilityLabel("\(entry.task.completed ? "Mark mine unfinished" : "Mark mine done"): \(entry.task.title)")
                 .accessibilityValue(entry.task.completed ? "Done by me" : "Not done by me")
-                .help("My completion. Subtasks and agent results stay independent.")
+                .accessibilityHint("Subtasks and agent results stay independent.")
             Color.clear.frame(width: CGFloat(min(entry.depth, 5)) * 10)
             if entry.hasChildren {
                 BistButton(focusRadius: 4, action: toggleChildren) {
@@ -496,7 +494,7 @@ private struct ChecklistRow: View {
                 Text(entry.task.title).font(.system(size: 11, weight: .regular))
                     .foregroundColor(entry.task.completed ? muted : ink).strikethrough(entry.task.completed, color: muted.opacity(0.6))
                     .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).frame(height: 26).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(entry.task.title).accessibilityLabel("Details for \(entry.task.title), level \(entry.depth + 1)")
+            }.buttonStyle(.plain).accessibilityLabel("Details for \(entry.task.title), level \(entry.depth + 1)")
             if let label = labels.first {
                 HStack(spacing: 3) {
                     Circle().fill(label.color.tint).frame(width: 4, height: 4)
@@ -505,7 +503,6 @@ private struct ChecklistRow: View {
                 }.foregroundColor(ink.opacity(0.8)).padding(.horizontal, 5).frame(height: 16)
                     .background(label.color.tint.opacity(0.13), in: Capsule())
                     .frame(maxWidth: 78).padding(.leading, 4)
-                    .help(labels.map(\.name).joined(separator: ", "))
                     .accessibilityLabel("Tags: \(labels.map(\.name).joined(separator: ", "))")
             }
             AgentDoneMark(task: entry.task).frame(width: 32, height: 26)
@@ -541,7 +538,7 @@ private struct AgentDoneMark: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Agent completion for \(task.title)")
         .accessibilityValue(task.agentCompletion == nil ? "Unknown. No reviewed result." : "Done. Result reviewed by you.")
-        .help(task.agentCompletion == nil ? "No reviewed agent result. This is not a live status." : "Agent result reviewed. Open task details for evidence.")
+        .accessibilityHint(task.agentCompletion == nil ? "No reviewed agent result. This is not a live status." : "Agent result reviewed. Open task details for evidence.")
     }
 }
 
@@ -610,9 +607,13 @@ private struct TaskInspectorContent: View {
             } else if let task {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
-                        BistButton(action: close) { Label("Tasks", systemImage: "chevron.left").font(.system(size: 10, weight: .medium)) }
-                            .buttonStyle(.plain).foregroundColor(violet)
+                        PanelNavigationButton(title: "Back to tasks", symbol: "chevron.left", action: close)
+                            .accessibilityHint("Returns to your list. Unsaved text stays in this draft.")
                         Spacer()
+                        if hasTextChanges {
+                            Text("Unsaved draft").font(.system(size: 10, weight: .medium)).foregroundColor(muted)
+                                .accessibilityLabel("Unsaved draft. Save changes to update the task.")
+                        }
                         if task.isSample { Text("Sample task").font(.system(size: 9)).foregroundColor(muted) }
                     }.padding(.bottom, 12)
                     ScrollView {
@@ -625,7 +626,7 @@ private struct TaskInspectorContent: View {
                             }.buttonStyle(.plain).foregroundColor(muted)
                                 .accessibilityLabel("\(draft.detailsExpanded ? "Hide" : "Show") optional details")
                             if draft.detailsExpanded {
-                                TextEditor(text: $draft.notes).font(.system(size: 11)).scrollContentBackground(.hidden)
+                                TextEditor(text: $draft.notes).font(.system(size: 11)).bistTextEntry().scrollContentBackground(.hidden)
                                     .frame(height: 70).padding(6).background(.white.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
                                     .accessibilityLabel("Optional task details")
                             }
@@ -663,7 +664,8 @@ private struct TaskInspectorContent: View {
                     }
                     if let error = localError ?? store.storeError { Text(error).font(.system(size: 10)).foregroundColor(.red).padding(.top, 5) }
                     HStack {
-                        Text("Tags save immediately; text and agent help need Save.").font(.system(size: 8)).foregroundColor(muted)
+                        Text("Text and agent help need Save. Back keeps your draft.").font(.system(size: 10)).foregroundColor(muted)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer()
                         BistButton("Save changes") { save() }.buttonStyle(TactileStyle(accent: true, compact: true))
                             .font(.system(size: 11)).disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -757,7 +759,7 @@ private struct TaskInspectorContent: View {
     private func field(_ name: String, text: Binding<String>, prompt: String = "") -> some View {
         VStack(alignment: .leading, spacing: 5) {
             caption(name)
-            TextField(prompt, text: text).textFieldStyle(.plain).font(.system(size: 11)).padding(8)
+            TextField(prompt, text: text).textFieldStyle(.plain).bistTextEntry().font(.system(size: 11)).padding(8)
                 .background(.white.opacity(0.4), in: RoundedRectangle(cornerRadius: 7)).accessibilityLabel(name)
         }
     }
@@ -786,8 +788,8 @@ private struct TaskLabelManager: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            BistButton(action: close) { Label("Back", systemImage: "chevron.left").font(.system(size: 10, weight: .medium)) }.buttonStyle(.plain).foregroundColor(violet)
-            HStack { Text("Labels").font(.system(size: 17, weight: .medium)); Spacer(); Text("\(store.labels.count)").font(.system(size: 10)).foregroundColor(muted) }
+            PanelNavigationButton(title: "Back", symbol: "chevron.left", action: close)
+            HStack { Text("Tags").font(.system(size: 17, weight: .medium)); Spacer(); Text("\(store.labels.count)").font(.system(size: 10)).foregroundColor(muted) }
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(store.labels) { label in
@@ -808,7 +810,7 @@ private struct TaskLabelManager: View {
                 }
             }
             Text(editingID == nil ? "New label" : "Edit label").font(.system(size: 10, weight: .medium)).foregroundColor(muted)
-            TextField("Label name", text: $name).textFieldStyle(.plain).font(.system(size: 12)).padding(9)
+            TextField("Label name", text: $name).textFieldStyle(.plain).bistTextEntry().font(.system(size: 12)).padding(9)
                 .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 8)).focused($nameFocused).onSubmit(save).accessibilityLabel("Label name")
             HStack(spacing: 8) {
                 ForEach(TaskLabelColor.allCases) { candidate in

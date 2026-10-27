@@ -19,7 +19,7 @@ struct AgentResultsView: View {
                 Spacer()
                 BistButton("Reload", action: load).buttonStyle(.plain).font(.system(size: 11)).foregroundColor(muted)
             }
-            Text("Review agent results").font(.system(size: 18, weight: .medium, design: .rounded))
+            Text("Review agent results").font(.system(size: 18, weight: .medium))
             Text("Local submissions need your review. No live adapter is connected; a submitted file does not prove completion.")
                 .font(.system(size: 11)).foregroundColor(muted).fixedSize(horizontal: false, vertical: true)
             if let error { Text(error).font(.system(size: 11)).foregroundColor(.red).fixedSize(horizontal: false, vertical: true) }
@@ -48,7 +48,7 @@ struct AgentResultsView: View {
             Text(session.map { "\($0.provider.displayName) · \($0.title)" } ?? "Session not found")
                 .font(.system(size: 10)).foregroundColor(muted).lineLimit(2)
             Text("Task \(result.taskID.uuidString.prefix(8)) · Session \(result.sessionID.uuidString.prefix(8))")
-                .font(.system(size: 9, design: .monospaced)).foregroundColor(muted)
+                .font(.system(size: 9)).foregroundColor(muted)
             if !result.summary.isEmpty { Text(result.summary).font(.system(size: 11)).textSelection(.enabled).lineLimit(8) }
             if let url = AgentResultsInbox.safeURL(result.artifactURL) {
                 BistButton { NSWorkspace.shared.open(url) } label: {
