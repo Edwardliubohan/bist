@@ -460,6 +460,133 @@ struct CoreTests {
         let invalidOpenTimestamp = TaskItem(title: "Open with impossible completion date", completedAt: Date(timeIntervalSince1970: 100))
         let invalidOpenTimestampRejected = try rejectsSnapshot(BistSnapshot(tasks: [invalidOpenTimestamp]), "invalid-open-completion-time")
         expect(invalidOpenTimestampRejected, "persisted open task cannot carry a completion timestamp")
+        // Outliner moves are atomic and carry descendants, never unrelated siblings.
+        let moving = AppStore(directory: root.appendingPathComponent("moving"))
+        expect(moving.addTask(title: "A") && moving.addTask(title: "B") && moving.addTask(title: "C", horizon: .longerTerm), "move fixtures added")
+        let a = moving.tasks[0].id, b = moving.tasks[1].id, c = moving.tasks[2].id
+        expect(moving.addTask(title: "A child", parentID: a), "move child added")
+        let child = moving.tasks.last!.id
+        expect(moving.addTask(title: "Grandchild", parentID: child), "move grandchild added")
+        let grandchild = moving.tasks.last!.id
+        let originalTree = moving.tasks
+        expect(moving.moveTask(id: child, to: .list(.longerTerm)), "child can move independently to another list")
+        expect(moving.tasks.first { $0.id == child }?.parentID == nil, "list drop promotes dragged child")
+        expect(moving.tasks.first { $0.id == grandchild }?.horizon == .longerTerm, "descendant follows moved child")
+        expect(moving.tasks.first { $0.id == a }?.horizon == .shortTerm, "old parent stays in its own list")
+        expect(moving.undo() && moving.tasks == originalTree, "entire subtree move has one exact undo")
+        expect(moving.moveTask(id: a, to: .inside(c)), "cross-list nesting succeeds")
+        expect(moving.tasks.filter { [a, child, grandchild].contains($0.id) }.allSatisfy { $0.horizon == .longerTerm }, "nested subtree inherits destination list")
+        let nestedTree = moving.tasks
+        expect(!moving.canMoveTask(id: c, to: .inside(grandchild)), "descendant nesting disabled")
+        expect(!moving.moveTask(id: c, to: .before(child)) && moving.tasks == nestedTree, "cycle through sibling destination rejected without mutation")
+        expect(!moving.moveTask(id: a, to: .inside(a)), "self drop rejected")
+        expect(!moving.moveTask(id: a, to: .before(UUID())), "missing destination rejected")
+        expect(moving.moveTask(id: a, to: .before(b)), "row edge moves subtree to target siblings")
+        expect(moving.tasks.first { $0.id == a }?.parentID == nil, "sibling move uses destination parent")
+        expect(moving.tasks.firstIndex { $0.id == a }! < moving.tasks.firstIndex { $0.id == b }!, "before drop preserves intended order")
+        expect(moving.moveTask(id: b, to: .after(a)), "after drop succeeds")
+        let afterTree = moving.tasks
+        let movedReload = AppStore(directory: moving.directory)
+        expect(movedReload.tasks.map(\.id) == afterTree.map(\.id) && zip(movedReload.tasks, afterTree).allSatisfy { $0.parentID == $1.parentID && $0.horizon == $1.horizon }, "move persists order and hierarchy")
+        expect(moving.deleteTask(id: a), "delete parent succeeds")
+        expect(moving.tasks.contains { $0.id == child && $0.parentID == nil }, "default delete preserves and promotes children")
+        expect(moving.tasks.contains { $0.id == grandchild && $0.parentID == child }, "delete preserves deeper hierarchy")
+        expect(moving.undo() && moving.tasks == afterTree, "delete restores tree and exact order with undo")
+        expect(moving.deleteTask(id: a, includingSubtasks: true), "explicit subtree deletion succeeds")
+        expect(!moving.tasks.contains { [a, child, grandchild].contains($0.id) }, "subtree deletion removes exactly the selected tree")
+        expect(moving.tasks.contains { $0.id == b } && moving.tasks.contains { $0.id == c }, "subtree deletion retains other tasks")
+        expect(moving.undo() && moving.tasks == afterTree, "subtree deletion has one undo")
+        // Run with -D BIST_CHECKLIST_TESTS and Sources/TaskViewState.swift to
+        // additionally verify the production renderer, without adding a view
+        // dependency to the standalone core test executable.
+        let orderingSession = SessionItem(provider: .codex, title: "Preserved session", url: "https://example.com/session")
+        func expectVisible(_ tasks: [TaskItem], _ titles: [String], _ message: String) {
+#if BIST_CHECKLIST_TESTS
+            expect(ActiveChecklist(tasks: tasks, collapsedParents: []).entries(for: .shortTerm).map { $0.task.title } == titles, message)
+#endif
+        }
+        func orderingFixture(_ name: String, _ tasks: [TaskItem]) throws -> AppStore {
+            let directory = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try encoder.encode(BistSnapshot(tasks: tasks, sessions: [orderingSession])).write(to: directory.appendingPathComponent("state.json"))
+            let result = AppStore(directory: directory)
+            expect(result.storeError == nil && result.tasks == tasks && !result.canUndo, "\(name): fixture loads exactly")
+            return result
+        }
+        func verifyOrdering(_ store: AppStore, before: [TaskItem], after: [TaskItem], visible: [String], originalVisible: [String], name: String) {
+            expect(store.tasks == after, "\(name): exact task fields and storage order")
+            expect(store.sessions == [orderingSession] && store.labels == TaskLabel.defaults, "\(name): session and labels unchanged")
+            expectVisible(store.tasks, visible, "\(name): active visible order")
+            let reloaded = AppStore(directory: store.directory)
+            expect(reloaded.tasks == after && reloaded.completedHistory == store.completedHistory && reloaded.sessions == store.sessions && reloaded.labels == store.labels, "\(name): reload preserves all fields and completion history")
+            expectVisible(reloaded.tasks, visible, "\(name): visible order after reload")
+            expect(store.undo() && store.tasks == before && !store.canUndo, "\(name): one exact undo")
+            expectVisible(store.tasks, originalVisible, "\(name): visible order after undo")
+            let undoneReload = AppStore(directory: store.directory)
+            expect(undoneReload.tasks == before && undoneReload.sessions == [orderingSession] && undoneReload.labels == TaskLabel.defaults, "\(name): exact undo persists")
+            expectVisible(undoneReload.tasks, originalVisible, "\(name): visible undo order after reload")
+        }
+        let orderDate = Date(timeIntervalSince1970: 1000)
+        let orderA = TaskItem(title: "A", createdAt: orderDate)
+        let orderB = TaskItem(title: "B", createdAt: orderDate)
+        let orderC = TaskItem(title: "C", createdAt: orderDate)
+        let orderEvidence = AgentCompletion(sessionID: orderingSession.id, artifactURL: "https://example.com/artifact", summary: "Keep reviewed evidence", observedAt: orderDate, reviewedAt: orderDate)
+        let orderChild = TaskItem(title: "child", notes: "Keep details", nextAction: "Keep next action", source: "Manual", sourceURL: "https://example.com/child", lane: .waiting, isSample: true, createdAt: orderDate, parentID: orderA.id, labelIDs: [TaskLabel.defaults[0].id], linkedSessionID: orderingSession.id, agentCompletion: orderEvidence, agentHelpRequested: true)
+        let scattered = [orderA, orderB, orderC, orderChild]
+        for (name, moved, expected) in [
+            ("scattered-after-C", orderC.id, [orderA, orderC, orderB, orderChild]),
+            ("scattered-after-B", orderB.id, [orderA, orderB, orderC, orderChild])
+        ] {
+            let fixture = try orderingFixture(name, scattered)
+            expectVisible(fixture.tasks, ["A", "child", "B", "C"], "\(name): initial visible order")
+            expect(fixture.moveTask(id: moved, to: .after(orderA.id)), "\(name): after succeeds")
+            if moved == orderB.id {
+                expect(fixture.tasks == scattered && !fixture.canUndo, "already adjacent sibling remains an exact no-op")
+                expectVisible(AppStore(directory: fixture.directory).tasks, ["A", "child", "B", "C"], "adjacent sibling remains visible after reload")
+            } else {
+                verifyOrdering(fixture, before: scattered, after: expected, visible: ["A", "child", "C", "B"], originalVisible: ["A", "child", "B", "C"], name: name)
+            }
+        }
+        let promotedFixture = try orderingFixture("scattered-delete", scattered)
+        var promotedChild = orderChild; promotedChild.parentID = nil
+        expectVisible(promotedFixture.tasks, ["A", "child", "B", "C"], "delete: initial visible order")
+        expect(promotedFixture.deleteTask(id: orderA.id), "scattered parent deletion succeeds")
+        verifyOrdering(promotedFixture, before: scattered, after: [promotedChild, orderB, orderC], visible: ["child", "B", "C"], originalVisible: ["A", "child", "B", "C"], name: "scattered-delete")
+
+        // Nested siblings and completed descendants are also noncontiguous.
+        let outer = TaskItem(title: "Outer", createdAt: orderDate)
+        var nestedA = orderA; nestedA.parentID = outer.id
+        var nestedB = orderB; nestedB.parentID = outer.id
+        var nestedC = orderC; nestedC.parentID = outer.id
+        let secondChild = TaskItem(title: "second child", createdAt: orderDate, parentID: orderA.id)
+        let grand = TaskItem(title: "grandchild", createdAt: orderDate, parentID: orderChild.id)
+        let done = TaskItem(title: "Completed descendant", notes: "Keep history", completed: true, createdAt: orderDate, parentID: orderChild.id, completedAt: orderDate)
+        let nestedScattered = [outer, nestedA, nestedB, nestedC, orderChild, secondChild, grand, done]
+        let nestedVisible = ["Outer", "A", "child", "grandchild", "second child", "B", "C"]
+        let nestedMove = try orderingFixture("nested-scattered-after", nestedScattered)
+        expectVisible(nestedMove.tasks, nestedVisible, "nested move: initial visible order")
+        expect(nestedMove.moveTask(id: nestedC.id, to: .after(nestedA.id)), "nested after succeeds")
+        verifyOrdering(nestedMove, before: nestedScattered, after: [outer, nestedA, nestedC, nestedB, orderChild, secondChild, grand, done], visible: ["Outer", "A", "child", "grandchild", "second child", "C", "B"], originalVisible: nestedVisible, name: "nested-scattered-after")
+        let nestedDelete = try orderingFixture("nested-scattered-delete", nestedScattered)
+        var nestedPromoted = orderChild; nestedPromoted.parentID = outer.id
+        var secondPromoted = secondChild; secondPromoted.parentID = outer.id
+        expectVisible(nestedDelete.tasks, nestedVisible, "nested delete: initial visible order")
+        expect(nestedDelete.deleteTask(id: nestedA.id), "nested parent deletion succeeds")
+        verifyOrdering(nestedDelete, before: nestedScattered, after: [outer, nestedPromoted, secondPromoted, nestedB, nestedC, grand, done], visible: ["Outer", "child", "grandchild", "second child", "B", "C"], originalVisible: nestedVisible, name: "nested-scattered-delete")
+        let insideFixture = try orderingFixture("scattered-inside", nestedScattered)
+        var insideB = nestedB; insideB.parentID = orderA.id
+        expectVisible(insideFixture.tasks, nestedVisible, "inside: initial visible order")
+        expect(insideFixture.moveTask(id: nestedB.id, to: .inside(orderA.id)), "inside append succeeds")
+        verifyOrdering(insideFixture, before: nestedScattered, after: [outer, nestedA, nestedC, orderChild, secondChild, insideB, grand, done], visible: ["Outer", "A", "child", "grandchild", "second child", "B", "C"], originalVisible: nestedVisible, name: "scattered-inside")
+
+        let failureMover = AppStore(directory: root.appendingPathComponent("move-write-failure"))
+        expect(failureMover.addTask(title: "Retained A") && failureMover.addTask(title: "Retained B"), "write failure fixture added")
+        let failureBefore = failureMover.tasks
+        try FileManager.default.removeItem(at: failureMover.stateURL)
+        try FileManager.default.createDirectory(at: failureMover.stateURL, withIntermediateDirectories: false)
+        expect(!failureMover.moveTask(id: failureBefore[0].id, to: .inside(failureBefore[1].id)) && failureMover.tasks == failureBefore, "failed move persistence leaves memory unchanged")
+        expect(!failureMover.deleteTask(id: failureBefore[0].id) && failureMover.tasks == failureBefore, "failed delete persistence leaves memory unchanged")
+
         print("PASS: \(checks) core checks")
     }
 }

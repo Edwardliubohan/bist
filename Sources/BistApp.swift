@@ -27,24 +27,41 @@ final class PanelState: ObservableObject {
     @Published var showSessionForm = false
     @Published var showInbox = false
     @Published var showAgentResults = false
+    @Published var showSettings = false
     @Published var notice: String?
-    @Published var opaque = ProcessInfo.processInfo.arguments.contains("--opaque")
-    @Published var reduced = ProcessInfo.processInfo.arguments.contains("--reduced-motion")
+    @Published var transparency = UserDefaults.standard.object(forKey: "panelTransparency")
+        .map { _ in min(1, max(0, UserDefaults.standard.double(forKey: "panelTransparency"))) } ?? 0.5 {
+        didSet { UserDefaults.standard.set(transparency, forKey: "panelTransparency") }
+    }
+    @Published var opaque = ProcessInfo.processInfo.arguments.contains("--opaque") || UserDefaults.standard.bool(forKey: "opaquePanel") {
+        didSet { UserDefaults.standard.set(opaque, forKey: "opaquePanel") }
+    }
+    @Published var reduced = ProcessInfo.processInfo.arguments.contains("--reduced-motion") || UserDefaults.standard.bool(forKey: "reducedMotion") {
+        didSet { UserDefaults.standard.set(reduced, forKey: "reducedMotion") }
+    }
     var resize: ((Bool) -> Void)?
     var hoverChanged: ((Bool) -> Void)?
     var syncPreviewPreferences: ((Bool, Bool) -> Void)?
     func selectTab(_ index: Int) {
-        detailID = nil; showSessionForm = false; showInbox = false; showAgentResults = false
+        detailID = nil; showSessionForm = false; showInbox = false; showAgentResults = false; showSettings = false
         selectedTab = index
+    }
+    func openSettings() {
+        setExpanded(true)
+        showSettings = true
+    }
+    func toggleSettings() {
+        if showSettings { showSettings = false } else { openSettings() }
     }
     func toggle() { setExpanded(!expanded) }
     func setExpanded(_ value: Bool) {
-        detailID = nil; showSessionForm = false; showInbox = false; showAgentResults = false
+        detailID = nil; showSessionForm = false; showInbox = false; showAgentResults = false; showSettings = false
         if !value { cornerHighlighted = false }
         expanded = value; resize?(value)
     }
     func dismiss() {
-        if detailID != nil { detailID = nil }
+        if showSettings { showSettings = false }
+        else if detailID != nil { detailID = nil }
         else if showSessionForm { showSessionForm = false }
         else if showInbox { showInbox = false }
         else if showAgentResults { showAgentResults = false }
@@ -213,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             if event.modifierFlags.contains(.command) {
                 switch event.charactersIgnoringModifiers {
+                case ",": self.state.openSettings(); return nil
                 case "n": self.state.selectedTab = 0; self.state.setExpanded(true); self.state.focusAddToken += 1; return nil
                 case "a": if let editor = self.panel.firstResponder as? NSText { editor.selectAll(nil); return nil }
                 case "1": self.state.selectTab(0); self.state.setExpanded(true); return nil
@@ -291,7 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct GlassMaterial: NSViewRepresentable {
     let opaque: Bool
     func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView(); view.blendingMode = .behindWindow; view.material = .underWindowBackground; view.alphaValue = 0.28; view.state = .active; view.appearance = NSAppearance(named: .aqua); return view
+        let view = NSVisualEffectView(); view.blendingMode = .behindWindow; view.material = .popover; view.alphaValue = 1; view.state = .active; view.appearance = NSAppearance(named: .aqua); return view
     }
     func updateNSView(_ view: NSVisualEffectView, context: Context) { view.isHidden = opaque }
 }
@@ -361,10 +379,14 @@ struct BistView: View {
     var body: some View {
         ZStack {
             GlassMaterial(opaque: opaque)
-            (opaque ? ivory : ivory.opacity(0.09))
-            if !opaque {
-                LinearGradient(colors: [.white.opacity(0.13), .white.opacity(0.015), Color.white.opacity(0.045)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            }
+            ivory.opacity(opaque ? 1 : 0.92 - 0.38 * state.transparency)
+            LinearGradient(colors: [.white.opacity(0.20), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
+                .allowsHitTesting(false)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topTrailing) {
+            // An overlay cannot impose the open page's minimum size on the
+            // compact host. Its layout stays stable while the window reveals it.
             expanded
                 .frame(width: state.openSize.width, height: state.openSize.height)
                 .opacity(state.reveal)
@@ -388,15 +410,17 @@ struct BistView: View {
         .animation(reduceMotion || state.reduced ? nil : .easeOut(duration: 0.16), value: state.cornerHighlighted)
         .foregroundColor(ink).font(.system(size: 13))
         .preferredColorScheme(.light)
+        .tint(accent)
         .coordinateSpace(name: "bistPanel")
         .onPreferenceChange(BistInteractionRegionsKey.self) { state.focusContext.interactionRegions = $0 }
         .environment(\.bistReduced, reduceMotion || state.reduced)
         .environmentObject(state.focusContext)
         .onAppear { syncPreviewPreferences() }
-        .onChange(of: store.tasks.map(\.id)) { _, ids in
-            let retained = Set(ids)
+        .onChange(of: store.tasks) { _, tasks in
+            checklistViewState.creation.reconcileParent(tasks: tasks)
+            let retained = Set(tasks.map(\.id))
             if let id = state.detailID, !retained.contains(id) { state.detailID = nil }
-            inspectorDrafts.retainTasks(ids: retained)
+            inspectorDrafts.retainTasks(ids: retained, undoableIDs: store.undoTaskIDs)
         }
         .onChange(of: opaque) { syncPreviewPreferences() }
         .onChange(of: reduceMotion || state.reduced) { syncPreviewPreferences() }
@@ -410,7 +434,7 @@ struct BistView: View {
                 .shadow(color: cornerOrange.opacity(state.cornerHighlighted ? 0.24 * (1 - state.reveal) : 0), radius: 4, y: 1)
                 .overlay(alignment: .topTrailing) {
                     if active.contains(where: { $0.lane == .attention }) {
-                        Circle().fill(violet).frame(width: 4, height: 4)
+                        Circle().fill(accent).frame(width: 4, height: 4)
                             .overlay(Circle().strokeBorder(.white.opacity(0.8), lineWidth: 0.5))
                             .offset(x: 7, y: -5)
                     }
@@ -419,6 +443,12 @@ struct BistView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(CornerButtonStyle(hovered: state.cornerHighlighted, feedback: 1 - state.reveal))
+        .background {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(ivory)
+                .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(accent.opacity(0.22), lineWidth: 1))
+                .opacity(1 - state.reveal)
+        }
 
         .background(CornerHoverRegion(onHover: state.setHovered)
             .frame(width: CornerLayout.compactHitSize.width, height: CornerLayout.compactHitSize.height))
@@ -430,11 +460,17 @@ struct BistView: View {
         VStack(spacing: 0) {
             header
             ZStack {
-            if let id = state.detailID, let task = store.tasks.first(where: { $0.id == id }) {
+            if state.showSettings {
+                BistSettingsView(store: store, state: state,
+                    close: { state.showSettings = false },
+                    reviewUpdates: { state.showSettings = false; state.showInbox = true },
+                    reviewResults: { state.showSettings = false; state.showAgentResults = true })
+                    .transition(editorTransition).zIndex(2)
+            } else if let id = state.detailID, let task = store.tasks.first(where: { $0.id == id }) {
                 TaskInspector(taskID: task.id, store: store, close: { state.detailID = nil }, reviewAgentResults: {
                     state.detailID = nil; state.showAgentResults = true
                 }, drafts: inspectorDrafts)
-                    .id(id).transition(editorTransition)
+                    .id(id).transition(editorTransition).zIndex(1)
             } else if state.showAgentResults {
                 AgentResultsView(store: store, directory: directory) { state.showAgentResults = false }.transition(.opacity)
             } else if state.showSessionForm {
@@ -444,24 +480,32 @@ struct BistView: View {
             } else {
                 ZStack {
                     if state.selectedTab == 0 {
-                        taskContent.transition(reduceMotion || state.reduced ? .opacity : .asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
+                        taskContent.transition(reduceMotion || state.reduced ? .opacity : .asymmetric(insertion: .offset(x: -12).combined(with: .opacity), removal: .offset(x: -12).combined(with: .opacity)))
                     } else {
-                        sessionContent.transition(reduceMotion || state.reduced ? .opacity : .asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .trailing).combined(with: .opacity)))
+                        sessionContent.transition(reduceMotion || state.reduced ? .opacity : .asymmetric(insertion: .offset(x: 12).combined(with: .opacity), removal: .offset(x: 12).combined(with: .opacity)))
                     }
                 }.transition(reduceMotion || state.reduced ? .opacity : .offset(x: -18).combined(with: .opacity))
             }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(ivory.opacity(opaque ? 1 : 0.62))
             .clipped()
-            .animation(navigationMotion, value: state.detailID)
-            .animation(navigationMotion, value: state.selectedTab)
+            .animation(navigationMotion, value: navigationID)
         }
     }
+    private var navigationID: String {
+        if state.showSettings { return "settings" }
+        if let id = state.detailID { return id.uuidString }
+        if state.showAgentResults { return "results" }
+        if state.showInbox { return "inbox" }
+        if state.showSessionForm { return "session-form" }
+        return "tab-\(state.selectedTab)"
+    }
     private var navigationMotion: Animation? {
-        reduceMotion || state.reduced ? nil : .easeInOut(duration: 0.22)
+        reduceMotion || state.reduced || state.keyboardNavigation ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.20)
     }
     private var editorTransition: AnyTransition {
-        reduceMotion || state.reduced ? .opacity : .offset(x: 24).combined(with: .opacity)
+        reduceMotion || state.reduced ? .opacity : .offset(x: 12).combined(with: .opacity)
     }
     var header: some View {
         HStack(spacing: 8) {
@@ -470,20 +514,13 @@ struct BistView: View {
                 .frame(maxHeight: .infinity)
                 .bistInteractionRegion(.drag)
                 .accessibilityLabel("Drag bist to move")
-            Menu {
-                Button("Reload local task file") { _ = store.reload() }
-                Button("Review local updates…") { state.showInbox = true; state.detailID = nil; state.showSessionForm = false; state.showAgentResults = false }
-                Button("Review agent results…") { state.showAgentResults = true; state.detailID = nil; state.showSessionForm = false; state.showInbox = false }
-                Divider()
-                Button("Load sample tasks") { _ = store.loadSamples() }
-                Button("Remove sample tasks") { _ = store.clearSamples() }
-                Divider()
-                Toggle("Reduce transparency", isOn: $state.opaque)
-                Toggle("Reduce motion", isOn: $state.reduced)
-                Divider()
-                Button("Quit bist") { NSApp.terminate(nil) }.keyboardShortcut("q")
-            } label: { Image(systemName: "gearshape").frame(width: 30, height: 32) }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().bistPointingHand().help("bist options").accessibilityLabel("bist options")
+            BistButton {
+                state.toggleSettings()
+            } label: {
+                Image(systemName: "gearshape").font(.system(size: 13)).frame(width: 30, height: 32)
+                    .foregroundColor(state.showSettings ? accent : muted)
+                    .background(state.showSettings ? accent.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            }.buttonStyle(.plain).accessibilityLabel("Settings").help("Settings · ⌘,")
             Color.clear.frame(width: 32)
         }.padding(.leading, 17).padding(.trailing, 9).frame(height: 48)
     }
@@ -497,7 +534,7 @@ struct BistView: View {
         BistButton { withAnimation(navigationMotion) { state.selectTab(index) } } label: {
             HStack(spacing: 7) {
                 Text(title).font(.system(size: 13, weight: state.selectedTab == index ? .semibold : .regular))
-                if number > 0 { Text("\(number)").font(.system(size: 10, weight: .semibold)).padding(.horizontal, 5).padding(.vertical, 2).background(state.selectedTab == index ? violet.opacity(0.1) : .clear, in: Capsule()) }
+                if number > 0 { Text("\(number)").font(.system(size: 10, weight: .semibold)).padding(.horizontal, 5).padding(.vertical, 2).background(state.selectedTab == index ? accent.opacity(0.1) : .clear, in: Capsule()) }
             }.foregroundColor(state.selectedTab == index ? ink : muted).padding(.horizontal, 5).frame(height: 34)
                 .overlay(alignment: .bottom) { Rectangle().fill(state.selectedTab == index ? ink : .clear).frame(height: 1) }
                 .contentShape(Rectangle())
@@ -510,16 +547,16 @@ struct BistView: View {
         if let error = store.storeError { Text(error).font(.system(size: 10)).foregroundColor(.red).lineLimit(3) }
         else if store.canUndo {
             HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill").foregroundColor(violet).font(.system(size: 11))
+                Image(systemName: "checkmark.circle.fill").foregroundColor(accent).font(.system(size: 11))
                 Text(store.lastActionLabel ?? "Task updated").font(.system(size: 11)).lineLimit(1)
                 Spacer()
-                BistButton("Undo") { withAnimation(motion) { _ = store.undo() } }.buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundColor(violet).keyboardShortcut("z").accessibilityLabel("Undo last task action")
-            }.padding(.horizontal, 10).frame(height: 32).background(violet.opacity(0.075), in: RoundedRectangle(cornerRadius: 10))
+                BistButton("Undo") { withAnimation(motion) { _ = store.undo() } }.buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundColor(accent).keyboardShortcut("z").accessibilityLabel("Undo last task action")
+            }.padding(.horizontal, 10).frame(height: 32).background(accent.opacity(0.075), in: RoundedRectangle(cornerRadius: 10))
         }
     }
     var sessionContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack { Text("Your agent spaces").font(.system(size: 11, weight: .medium)).foregroundColor(muted); Spacer(); Text("Local links").font(.system(size: 9, weight: .medium)).foregroundColor(violet).padding(.horizontal, 7).padding(.vertical, 4).background(violet.opacity(0.08), in: Capsule()) }.padding(.horizontal, 23).padding(.bottom, 12)
+            HStack { Text("Your agent spaces").font(.system(size: 11, weight: .medium)).foregroundColor(muted); Spacer(); Text("Local links").font(.system(size: 9, weight: .medium)).foregroundColor(accent).padding(.horizontal, 7).padding(.vertical, 4).background(accent.opacity(0.08), in: Capsule()) }.padding(.horizontal, 23).padding(.bottom, 12)
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(SessionProvider.allCases, id: \.self) { provider in
@@ -561,7 +598,7 @@ struct BistView: View {
                 Menu { Button("Remove local link") { _ = store.removeSession(id: session.id) } } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().bistPointingHand().accessibilityLabel("Options for \(session.title)")
             }
             Text("Last observed: never").font(.system(size: 9)).foregroundColor(muted)
-        }.padding(12).background(violet.opacity(0.055), in: RoundedRectangle(cornerRadius: 13))
+        }.padding(12).background(accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 13))
     }
 }
 
@@ -570,7 +607,7 @@ func providerName(_ p: SessionProvider) -> String {
 }
 func providerGlyph(_ p: SessionProvider) -> some View {
     let glyph: String = p == .claudeCode ? "asterisk" : p == .codex ? "command" : "infinity"
-    let color: Color = p == .claudeCode ? Color(red: 0.64, green: 0.42, blue: 0.31) : p == .codex ? Color(red: 0.32, green: 0.48, blue: 0.43) : violet
+    let color: Color = p == .claudeCode ? Color(red: 0.64, green: 0.42, blue: 0.31) : p == .codex ? Color(red: 0.32, green: 0.48, blue: 0.43) : accent
     return Image(systemName: glyph).font(.system(size: 19, weight: .medium)).foregroundColor(color).frame(width: 38, height: 38).background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.7), lineWidth: 0.7))
 }
 func safeURL(_ string: String) -> URL? {
@@ -586,7 +623,7 @@ struct SessionForm: View {
     @State private var error = false
     var body: some View {
         VStack(alignment: .leading, spacing: 17) {
-            BistButton(action: close) { Label("Sessions", systemImage: "chevron.left").font(.system(size: 11, weight: .medium)) }.buttonStyle(.plain).foregroundColor(violet)
+            BistButton(action: close) { Label("Sessions", systemImage: "chevron.left").font(.system(size: 11, weight: .medium)) }.buttonStyle(.plain).foregroundColor(accent)
             Text("Keep a session close.").font(.system(size: 21, weight: .medium))
             Text("Save a link you already have. Adding a link does not connect an account or reveal its status.").font(.system(size: 12)).foregroundColor(muted).lineSpacing(3)
             Picker("Product", selection: $provider) { ForEach(SessionProvider.allCases, id: \.self) { Text(providerName($0)).tag($0) } }.pickerStyle(.menu).bistPointingHand()
@@ -595,7 +632,7 @@ struct SessionForm: View {
             if let saveError = store.storeError { Text(saveError).font(.system(size: 11)).foregroundColor(.red) }
             if error { Text("Enter a title and a full http or https link without credentials.").font(.system(size: 11)).foregroundColor(.red) }
             Spacer()
-            BistButton { error = false; guard safeURL(url) != nil && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = true; return }; if store.addSession(provider: provider, title: title, url: url) { close() } } label: { Text("Save local link").frame(maxWidth: .infinity).font(.system(size: 12, weight: .semibold)) }.buttonStyle(TactileStyle(accent: true))
+            BistButton { error = false; guard safeURL(url) != nil && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = true; return }; if store.addSession(provider: provider, title: title, url: url) { close() } } label: { Text("Save local link").frame(maxWidth: .infinity).font(.system(size: 12, weight: .semibold)) }.buttonStyle(TactileStyle(prominent: true))
         }.padding(.horizontal, 23).padding(.bottom, 23)
     }
 }
@@ -609,7 +646,7 @@ struct InboxView: View {
     @State private var loaded = false
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            BistButton(action: close) { Label("Back", systemImage: "chevron.left").font(.system(size: 11, weight: .medium)) }.buttonStyle(.plain).foregroundColor(violet)
+            BistButton(action: close) { Label("Back", systemImage: "chevron.left").font(.system(size: 11, weight: .medium)) }.buttonStyle(.plain).foregroundColor(accent)
             Text("Review local updates").font(.system(size: 20, weight: .medium))
             Text("Proposed tasks wait for your review. No background sync is running.").font(.system(size: 12)).foregroundColor(muted).lineSpacing(3)
             if !loaded { ProgressView().controlSize(.small) }
@@ -628,7 +665,7 @@ struct InboxView: View {
                     let imported = Set(proposals.map(\.id))
                     do { try LocalInbox(directory: directory).consume(ids: imported); proposals = try LocalInbox(directory: directory).load(); if proposals.isEmpty { close() } }
                     catch { self.error = error.localizedDescription }
-                } label: { Text("Add \(proposals.count) task\(proposals.count == 1 ? "" : "s")").frame(maxWidth: .infinity) }.buttonStyle(TactileStyle(accent: true))
+                } label: { Text("Add \(proposals.count) task\(proposals.count == 1 ? "" : "s")").frame(maxWidth: .infinity) }.buttonStyle(TactileStyle(prominent: true))
             }
         }.padding(.horizontal, 23).padding(.bottom, 23)
         .onAppear { do { proposals = try LocalInbox(directory: directory).load() } catch { self.error = error.localizedDescription }; loaded = true }

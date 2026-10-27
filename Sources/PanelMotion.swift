@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 
 enum PanelMotion {
-    static let duration: TimeInterval = 0.38
+    static let duration: TimeInterval = 0.28
 
     static func fraction(_ progress: Double) -> Double {
         let t = min(1, max(0, progress))

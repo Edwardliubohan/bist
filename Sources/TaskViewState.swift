@@ -98,6 +98,23 @@ final class TaskCreationDraft: ObservableObject {
     func reconcileLabels(available ids: Set<UUID>) {
         labelIDs = labelIDs.filter { ids.contains($0) }
     }
+    /// Global capture falls back to its current list when its chosen parent is
+    /// deleted. Inspector capture stays pinned so its draft can return via Undo.
+    func reconcileParent(tasks: [TaskItem]) {
+        if let initialParentID {
+            if let parent = tasks.first(where: { $0.id == initialParentID }) {
+                parentID = parent.id
+                horizon = parent.horizon
+            }
+            return
+        }
+        guard let parentID else { return }
+        if let parent = tasks.first(where: { $0.id == parentID }) {
+            horizon = parent.horizon
+        } else {
+            self.parentID = nil
+        }
+    }
     func cancel() {
         resetFields()
         parentID = initialParentID; horizon = .shortTerm
@@ -106,6 +123,7 @@ final class TaskCreationDraft: ObservableObject {
     }
     @MainActor
     @discardableResult func submit(to store: AppStore) -> Bool {
+        reconcileParent(tasks: store.tasks)
         guard store.addTask(title: title, details: details, labelIDs: labelIDs,
                             agentHelpRequested: agentHelpRequested, parentID: parentID, horizon: horizon) else { return false }
         resetFields()
@@ -201,11 +219,38 @@ final class TaskInspectorDraft: ObservableObject {
 
 final class TaskInspectorDrafts: ObservableObject {
     private var drafts: [UUID: TaskInspectorDraft] = [:]
+    private var deletedDraftIDs: [UUID] = []
+    private let deletedDraftLimit: Int
+
+    /// Deleted tasks can return through Undo. Keep their entire inspector draft
+    /// (including an unsent subtask) for this panel session, bounded separately
+    /// from live tasks. Only the exact UUID can reclaim a retained draft.
+    init(deletedDraftLimit: Int = 100) {
+        self.deletedDraftLimit = max(0, deletedDraftLimit)
+    }
+
     func draft(for task: TaskItem) -> TaskInspectorDraft {
+        deletedDraftIDs.removeAll { $0 == task.id }
         if let draft = drafts[task.id] { return draft }
         let draft = TaskInspectorDraft(task: task)
         drafts[task.id] = draft
         return draft
     }
-    func retainTasks(ids: Set<UUID>) { drafts = drafts.filter { ids.contains($0.key) } }
+    func retainTasks(ids: Set<UUID>, undoableIDs: Set<UUID>? = nil) {
+        if let undoableIDs {
+            let recoverable = ids.union(undoableIDs)
+            drafts = drafts.filter { recoverable.contains($0.key) }
+            deletedDraftIDs.removeAll { !recoverable.contains($0) || ids.contains($0) }
+            return
+        }
+        deletedDraftIDs.removeAll { ids.contains($0) }
+        let alreadyDeleted = Set(deletedDraftIDs)
+        let newlyDeleted = drafts.keys.filter { !ids.contains($0) && !alreadyDeleted.contains($0) }
+        // Stable ordering when a subtree disappears in one update. Repeated
+        // reconciliation must not refresh the age of an already deleted draft.
+        deletedDraftIDs.append(contentsOf: newlyDeleted.sorted { $0.uuidString < $1.uuidString })
+        let excess = max(0, deletedDraftIDs.count - deletedDraftLimit)
+        for id in deletedDraftIDs.prefix(excess) { drafts.removeValue(forKey: id) }
+        deletedDraftIDs.removeFirst(excess)
+    }
 }
