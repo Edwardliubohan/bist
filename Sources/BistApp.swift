@@ -417,16 +417,19 @@ struct CornerHoverRegion: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
-            // inVisibleRect follows layout automatically. Keep the same area so
-            // hover-driven SwiftUI updates cannot reset enter/exit tracking.
-            guard hoverArea == nil else { return }
-            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect, .enabledDuringMouseDrag], owner: self)
+            // SwiftUI can report a visibleRect larger than this 44-point view.
+            // Constrain native tracking as well as the timer to our own bounds.
+            let rect = bounds.intersection(visibleRect)
+            // Keep unchanged areas stable across hover-driven SwiftUI updates.
+            guard hoverArea?.rect != rect else { return }
+            if let hoverArea { removeTrackingArea(hoverArea) }
+            let area = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .enabledDuringMouseDrag], owner: self)
             addTrackingArea(area); hoverArea = area
         }
         private func reportPointerPresence() {
             guard let window else { stopTracking(); return }
             let local = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            let present = visibleRect.contains(local)
+            let present = bounds.intersection(visibleRect).contains(local)
             if present != inside { inside = present; onHover(present) }
             if present && pointerTimer == nil {
                 let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in self?.reportPointerPresence() }
