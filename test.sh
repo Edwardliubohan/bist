@@ -17,3 +17,7 @@ build/tests/task-view-state
 python3 scripts/test-logo.py
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/PanelLifecycleTests.swift -o build/tests/panel-lifecycle
 build/tests/panel-lifecycle
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/LocalSessionTests.swift -o build/tests/local-sessions
+build/tests/local-sessions
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/SessionBrowserTests.swift -o build/tests/session-browser
+build/tests/session-browser

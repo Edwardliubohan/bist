@@ -38,8 +38,8 @@ struct PanelMotionTests {
                 expect(PanelMotion.frame(from: frame, to: start, progress: 0) == frame, "Interrupted clamped transition starts at current frame")
             }
         }
-        expect(PanelMotion.fraction(0.001) < 0.0000001, "Opening starts softly")
-        expect(1 - PanelMotion.fraction(0.999) < 0.0000001, "Opening settles softly")
+        expect(PanelMotion.fraction(0.1) > 0.3, "Reveal responds promptly with the compositor ease-out curve")
+        expect(1 - PanelMotion.fraction(0.999) < 0.0000001, "Reveal settles softly")
         print("PASS: \(checks) panel motion checks")
     }
 }

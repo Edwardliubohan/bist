@@ -20,7 +20,6 @@ final class PreviewPanelController {
     private var visibleFrame: CGRect?
     private var aboveAnchor = false
     var reducedMotion = false
-    var reduceTransparency = false { didSet { if oldValue != reduceTransparency { refreshContent() } } }
     var isVisible: Bool { interaction.isVisible }
 
     deinit {
@@ -98,7 +97,7 @@ final class PreviewPanelController {
     }
 
     private func refreshContent() {
-        let host = NSHostingView(rootView: HoverTaskPreview(store: store, opaque: reduceTransparency, aboveAnchor: aboveAnchor, onHover: { [weak self] inside in self?.previewHoverChanged(inside) }))
+        let host = NSHostingView(rootView: HoverTaskPreview(store: store, aboveAnchor: aboveAnchor, onHover: { [weak self] inside in self?.previewHoverChanged(inside) }))
         // The panel, not SwiftUI's intrinsic content size, owns screen geometry.
         host.sizingOptions = []
         host.wantsLayer = true
@@ -162,15 +161,12 @@ final class PreviewPanelController {
 @MainActor
 private struct HoverTaskPreview: View {
     @ObservedObject var store: AppStore
-    let opaque: Bool
     var aboveAnchor = false
     let onHover: (Bool) -> Void
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private let secondary = muted
     private var selection: PreviewTaskSelection<TaskItem> {
         PreviewTaskSelection(store.tasks, isOutstanding: { !$0.completed }, isShortTerm: { $0.horizon == .shortTerm })
     }
-    private var solid: Bool { opaque || reduceTransparency }
     var body: some View {
         VStack(spacing: 0) {
             // Transparent tracking bridge: no visible surface touches the icon.
@@ -203,15 +199,9 @@ private struct HoverTaskPreview: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background {
-                ZStack {
-                    PreviewGlass(opaque: solid)
-                    Color(red: 0.97, green: 0.96, blue: 0.94).opacity(solid ? 1 : 0.10)
-                    if !solid { LinearGradient(colors: [.white.opacity(0.14), accent.opacity(0.015)], startPoint: .topLeading, endPoint: .bottomTrailing) }
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white.opacity(0.86), lineWidth: 1))
+            .background(ivory)
+            .clipShape(RoundedRectangle(cornerRadius: CornerLayout.cornerRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: CornerLayout.cornerRadius, style: .continuous).strokeBorder(accent.opacity(0.16), lineWidth: 1))
             if aboveAnchor { Color.clear.frame(height: CornerLayout.previewGap) }
         }
         .foregroundStyle(ink)
@@ -245,17 +235,4 @@ private struct HoverTaskPreview: View {
         }
         return accent
     }
-}
-
-private struct PreviewGlass: NSViewRepresentable {
-    let opaque: Bool
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .behindWindow
-        view.material = .underWindowBackground
-        view.alphaValue = 0.28
-        view.state = .active
-        return view
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) { view.isHidden = opaque }
 }

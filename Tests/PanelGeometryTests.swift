@@ -23,6 +23,13 @@ struct PanelGeometryTests {
         expect(equal(screen.maxX - compact.maxX, 16) && equal(screen.maxY - compact.maxY, 16), "compact top-right inset is 16 pt")
         expect(equal(screen.maxX - expanded.maxX, 16) && equal(screen.maxY - expanded.maxY, 16), "expanded top-right inset is 16 pt")
         expect(compact.maxX == expanded.maxX && compact.maxY == expanded.maxY, "expansion preserves the top-right anchor")
+        for scale: CGFloat in [1, 2] {
+            let fractional = CGRect(x: -123.76171875, y: 944.0703125, width: 48, height: 48)
+            let aligned = CornerLayout.pixelAligned(fractional, scale: scale)
+            expect(aligned.size == fractional.size, "Pixel alignment preserves the hit target size")
+            expect(aligned.minX * scale == (aligned.minX * scale).rounded() && aligned.minY * scale == (aligned.minY * scale).rounded(), "Dragged origins are on the physical pixel grid")
+            expect(CornerLayout.pixelAligned(aligned, scale: scale) == aligned, "Repeated alignment never moves the origin")
+        }
         let compactHit = CGRect(origin: .zero, size: CornerLayout.compactSize)
             .insetBy(dx: CornerLayout.compactHitInset, dy: CornerLayout.compactHitInset)
         expect(compactHit.size == CornerLayout.compactHitSize, "2 pt inset creates declared compact hit region")

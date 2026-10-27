@@ -31,7 +31,7 @@ struct BistSettingsView: View {
                             .accessibilityLabel("Panel transparency")
                             .accessibilityValue("\(Int((state.transparency * 100).rounded())) percent")
                         HStack { Text("Solid"); Spacer(); Text("Glass") }.font(.system(size: 10)).foregroundColor(muted)
-                        Text("Glass at the edges. A quiet surface behind your tasks keeps every word readable.")
+                        Text("Adjust the transparency of the entire panel. The task preview always uses a solid warm surface.")
                             .font(.system(size: 10)).foregroundColor(muted).fixedSize(horizontal: false, vertical: true)
                         Toggle("Solid background", isOn: $state.opaque).toggleStyle(.switch)
                         if systemOpaque { note("macOS Reduce Transparency is on.") }
