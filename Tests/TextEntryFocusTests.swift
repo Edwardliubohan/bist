@@ -4,7 +4,6 @@ import SwiftUI
 private final class EntryState: ObservableObject {
     @Published var request = 0
     @Published var editor = false
-    @Published var active = true
     var focused = false
     var text = "Caret regression"
 }
@@ -26,7 +25,7 @@ private struct EntryHarness: View {
         }
         .font(.system(size: 13)).foregroundColor(ink)
         .padding(10).frame(width: 300, height: 180)
-        .background(ivory).tint(accent).environment(\.controlActiveState, state.active ? .key : .inactive)
+        .background(ivory).tint(accent).environment(\.controlActiveState, .key)
         .onChange(of: state.request) { focused = true }
         .onChange(of: focused) { state.focused = focused }
     }
@@ -63,7 +62,6 @@ private struct EntryHarness: View {
         }
         for editor in [false, true] {
             state.editor = editor; pump()
-            let unfocused = capture()
             state.request += 1; pump()
             expect(state.focused, "Task input and Note accept programmatic keyboard focus")
             let views = textViews(host)
@@ -71,13 +69,7 @@ private struct EntryHarness: View {
             let color = views[0].insertionPointColor.usingColorSpace(.sRGB)!
             expect(abs(color.redComponent - 0.16) < 0.01 && abs(color.greenComponent - 0.12) < 0.01 && abs(color.blueComponent - 0.09) < 0.01,
                    "Caret uses dark ink rather than the inherited accent")
-            let focusedImage = capture()
-            expect(focusedImage != unfocused, "Focused editing surface has a persistent visible indicator")
-            expect(hasOutline(focusedImage), "Focus outline is drawn outside the text area, independently of the blinking caret")
-            state.active = false; pump()
-            expect(!hasOutline(capture()), "Inactive window does not claim to be the typing destination")
-            state.active = true; pump()
-            expect(hasOutline(capture()), "Reactivation restores the focus indicator")
+            expect(!hasOutline(capture()), "Focused inputs retain the borderless appearance without a highlighted box")
             context.dismissTextEntry(); pump()
             expect(!state.focused, "Click-away/collapse dismissal clears the entry's SwiftUI focus")
             expect(!hasOutline(capture()), "Dismissed input has no stale focus outline")
