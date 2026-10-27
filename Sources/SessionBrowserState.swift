@@ -63,6 +63,10 @@ final class SessionBrowserState: ObservableObject {
             return false
         }
     }
+    func acknowledge(_ session: LocalAgentSession, visible: Bool, running: Bool) {
+        guard visible, selectedID == session.id, !running, !isRead(session) else { return }
+        read(session)
+    }
     func inbox(_ sessions: [LocalAgentSession], running: Set<String>, archived: Bool = false) -> [LocalAgentSession] {
         sessions.filter {
             !running.contains($0.id) && isRead($0) == archived &&

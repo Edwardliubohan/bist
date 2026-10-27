@@ -55,6 +55,7 @@ struct SessionBrowserTests {
         let connection = LocalSessionConnection(scan: LocalSessionScan(sessions: sessions, messages: [.codex: "Local sessions connected", .claudeCode: "Local sessions connected"]))
         let focus = BistFocusContext()
         let panel = NSPanel(contentRect: CGRect(x: 50, y: 50, width: 360, height: 560), styleMask: [.borderless], backing: .buffered, defer: false)
+        var browserActive = false
         func root(_ source: LocalSessionConnection, data: AppStore) -> some View {
             VStack(spacing: 0) {
             HStack(spacing: 16) {
@@ -63,7 +64,7 @@ struct SessionBrowserTests {
                 Spacer()
                 BistFace(size: 25, isExpanded: true)
             }.font(.system(size: 13)).padding(.horizontal, 20).frame(height: 48)
-            SessionsPane(store: data, connection: source, browser: browser, active: false, addLink: {})
+            SessionsPane(store: data, connection: source, browser: browser, active: browserActive, addLink: {})
             }.background(ivory).preferredColorScheme(.light).tint(accent).environmentObject(focus)
         }
         func capture(_ name: String, size: CGSize = CGSize(width: 360, height: 560), source: LocalSessionConnection? = nil, data: AppStore? = nil) throws {
@@ -106,6 +107,13 @@ struct SessionBrowserTests {
         let emptyStore = AppStore(directory: directory.appendingPathComponent("empty"), demo: false)
         browser.collection = .saved
         try capture("empty-saved", source: empty, data: emptyStore)
+        browser.collection = .recent
+        browser.selectedID = sessions[2].id
+        try capture("hidden-detail")
+        expect(!browser.isRead(sessions[2]), "Mounted hidden detail does not acknowledge unread content")
+        browserActive = true
+        try capture("visible-detail")
+        expect(browser.isRead(sessions[2]), "Remounting visible detail acknowledges its initial displayed update")
         expect(store.tasks == beforeTasks && store.sessions == beforeLinks, "Browsing and rendering never changes user data")
         print("PASS: \(checks) session-browser checks; native captures cover grouping, older sessions, search, no matches, saved links, long names and a smaller panel")
     }

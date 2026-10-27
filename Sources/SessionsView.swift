@@ -131,8 +131,11 @@ struct SessionsPane: View {
             Text("Continues this session using its CLI login and permissions.").font(.system(size: 9)).foregroundColor(muted)
             if (browser.drafts[session.id] ?? "").utf8.count > 16_384 { Text("Message is too long (16 KB maximum).").font(.system(size: 10)).foregroundColor(.red) }
         }
+        .onChange(of: active, initial: true) { _, visible in
+            browser.acknowledge(session, visible: visible, running: connection.running.contains(session.id))
+        }
         .onChange(of: session.modifiedAt) { _, _ in
-            if !connection.running.contains(session.id) { browser.read(session) }
+            browser.acknowledge(session, visible: active, running: connection.running.contains(session.id))
         }
     }
     private func send(_ session: LocalAgentSession) {
