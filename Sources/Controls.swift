@@ -180,12 +180,11 @@ struct CornerButtonStyle: ButtonStyle {
         configuration.label
             .background {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(cornerOrange.opacity((configuration.isPressed ? 0.28 : hovered ? 0.18 : 0) * feedback))
+                    .fill(cornerOrange.opacity((configuration.isPressed ? 0.09 : hovered ? 0.045 : 0) * feedback))
                     .overlay {
                         RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .strokeBorder(cornerOrange.opacity((hovered || configuration.isPressed) ? 0.42 * feedback : 0), lineWidth: 1)
+                            .strokeBorder(cornerOrange.opacity((configuration.isPressed ? 0.18 : hovered ? 0.12 : 0) * feedback), lineWidth: 1)
                     }
-                    .shadow(color: cornerOrange.opacity(hovered && !configuration.isPressed ? 0.24 * feedback : 0), radius: 3, y: 1)
 
             }
             .animation(reduceMotion || localReduce ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
