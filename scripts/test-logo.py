@@ -53,7 +53,7 @@ for stop in gradient:
 assert [stop.attrib["offset"] for stop in gradient] == ["0", "0.5", "1"]
 assert ".easeOut(duration: 0.16)" in native
 assert "reduceMotion || systemReduceMotion" in native
-assert "!motionDisabled && !isExpanded && isHovered ? 9 : 0" in native
+assert "!motionDisabled && isHovered ? 9 : 0" in native
 assert "transaction.disablesAnimations = true" in native
 animated = ET.parse(root / "Assets/bist-mark-animated.svg").getroot()
 assert [p.attrib["d"] for p in animated.findall(".//svg:path", namespace)] == [p.attrib["d"] for p in svg.findall(".//svg:path", namespace)]
@@ -113,8 +113,10 @@ for pixels in [16, 24, 48] {
     let rest = render(pixels)
     let hover = render(pixels, hover: true)
     precondition(sameMark(rest, render(pixels)), "Repeated rest render differs")
-    precondition(sameMark(rest, render(pixels, hover: true, expanded: true)), "Expanded differs from rest")
+    precondition(sameMark(hover, render(pixels, hover: true, expanded: true)), "Expanded hover differs from compact hover")
     precondition(sameMark(rest, render(pixels, hover: true, localReduce: true)), "Local reduced motion moves")
+    precondition(sameMark(rest, render(pixels, expanded: true)), "Expanded resting orientation differs")
+    precondition(sameMark(rest, render(pixels, hover: true, expanded: true, localReduce: true)), "Expanded reduced motion moves")
     let restBytes = bytes(rest)
     let hoverBytes = bytes(hover)
     precondition(stride(from: 3, to: restBytes.count, by: 4).contains {
