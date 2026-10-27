@@ -501,7 +501,6 @@ struct BistView: View {
     var collapsed: some View {
         BistButton(focusRadius: 13) { state.toggle() } label: {
             BistFace(size: 25, isHovered: state.corner.isHovered, isExpanded: state.expanded, reduceMotion: reduceMotion || state.reduced)
-                .shadow(color: cornerOrange.opacity(state.cornerHighlighted ? 0.24 * (1 - state.reveal) : 0), radius: 4, y: 1)
                 .overlay(alignment: .topTrailing) {
                     if active.contains(where: { $0.lane == .attention }) {
                         Circle().fill(accent).frame(width: 4, height: 4)
