@@ -85,7 +85,7 @@ final class PreviewPanelController {
 
     private var contentHeight: CGFloat {
         let selection = PreviewTaskSelection(store.tasks, isOutstanding: { !$0.completed }, isShortTerm: { $0.horizon == .shortTerm })
-        return selection.visibleCount == 0 ? 126 : CGFloat(90 + selection.visibleCount * 27 + selection.visibleGroupCount * 20)
+        return selection.contentHeight
     }
 
     private func updateGeometry() {
@@ -171,33 +171,20 @@ private struct HoverTaskPreview: View {
         VStack(spacing: 0) {
             // Transparent tracking bridge: no visible surface touches the icon.
             if !aboveAnchor { Color.clear.frame(height: CornerLayout.previewGap) }
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Outstanding").font(.system(size: 13, weight: .semibold))
-                    Spacer()
-                    Text("\(selection.outstandingCount)").font(.system(size: 11, weight: .medium)).foregroundStyle(secondary)
-                }
-                if selection.outstandingCount == 0 {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("A little room to breathe.").font(.system(size: 12, weight: .medium))
-                        Text("No outstanding tasks.").font(.system(size: 11)).foregroundStyle(secondary)
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
-                } else {
-                    VStack(alignment: .leading, spacing: 7) {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if selection.outstandingCount == 0 {
+                        Text("No outstanding tasks.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
                         previewGroup(.shortTerm, tasks: selection.shortTerm)
                         previewGroup(.longerTerm, tasks: selection.longerTerm)
                     }
                 }
-                HStack(spacing: 4) {
-                    Image(systemName: "cursorarrow").font(.system(size: 9))
-                    Text("Click bist to open").font(.system(size: 10))
-                    Spacer()
-                    if selection.outstandingCount > selection.visibleCount {
-                        Text("+\(selection.outstandingCount - selection.visibleCount) more").font(.system(size: 10))
-                    }
-                }.foregroundStyle(secondary)
+                .padding(12)
             }
-            .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(ivory)
             .clipShape(RoundedRectangle(cornerRadius: CornerLayout.cornerRadius, style: .continuous))
@@ -214,15 +201,17 @@ private struct HoverTaskPreview: View {
     @ViewBuilder
     private func previewGroup(_ horizon: TaskHorizon, tasks: [TaskItem]) -> some View {
         if !tasks.isEmpty {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(horizon.title).font(.system(size: 10, weight: .semibold)).foregroundStyle(secondary)
-                ForEach(tasks) { task in
-                    HStack(alignment: .center, spacing: 9) {
-                        Circle().fill(dotColor(task)).frame(width: 6, height: 6).accessibilityHidden(true)
-                        Text(task.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                        Spacer(minLength: 0)
-                        if task.isSample { Text("Sample").font(.system(size: 9)).foregroundStyle(secondary) }
-                    }.frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                VStack(spacing: 0) {
+                    ForEach(tasks) { task in
+                        HStack(alignment: .center, spacing: 9) {
+                            Circle().fill(dotColor(task)).frame(width: 6, height: 6).accessibilityHidden(true)
+                            Text(task.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                            Spacer(minLength: 0)
+                            if task.isSample { Text("Sample").font(.system(size: 9)).foregroundStyle(secondary) }
+                        }.frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+                    }
                 }
             }
         }
