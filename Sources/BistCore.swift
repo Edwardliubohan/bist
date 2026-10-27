@@ -13,6 +13,52 @@ enum TaskLane: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum TaskHorizon: String, Codable, CaseIterable, Identifiable {
+    case shortTerm, longerTerm
+    var id: String { rawValue }
+    var title: String { self == .shortTerm ? "Short term" : "Longer term" }
+}
+
+enum TaskLabelColor: String, Codable, CaseIterable, Identifiable {
+    case lavender, blue, green, amber, rose, gray
+    var id: String { rawValue }
+    var hex: String {
+        switch self {
+        case .lavender: return "#7567B7"
+        case .blue: return "#4D77A8"
+        case .green: return "#448171"
+        case .amber: return "#AD7A38"
+        case .rose: return "#AB627B"
+        case .gray: return "#717581"
+        }
+    }
+}
+
+struct TaskLabel: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var name: String
+    var color: TaskLabelColor
+
+    // Stable IDs keep migration deterministic. Defaults are editable and are
+    // never automatically assigned to an existing or newly created task.
+    static let defaults = [
+        TaskLabel(id: UUID(uuidString: "C4502D0B-E7AB-48B3-A073-50040F539E26")!, name: "School", color: .blue),
+        TaskLabel(id: UUID(uuidString: "73CC5AE9-F640-4BE8-9BD8-AE80128EAA74")!, name: "Class", color: .lavender),
+        TaskLabel(id: UUID(uuidString: "0090A4D6-EF0E-447F-8CE6-8B383AEAE701")!, name: "Koan", color: .green)
+    ]
+}
+
+/// User-reviewed evidence of an agent result, independent of the user's own
+/// completion state. No session status is inferred or changed by this record.
+struct AgentCompletion: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var sessionID: UUID
+    var artifactURL: String
+    var summary: String
+    var observedAt: Date
+    var reviewedAt: Date
+}
+
 struct TaskItem: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
     var title: String
@@ -24,6 +70,43 @@ struct TaskItem: Codable, Identifiable, Equatable {
     var isSample: Bool = false
     var completed: Bool = false
     var createdAt: Date = Date()
+    var parentID: UUID? = nil
+    var labelIDs: [UUID] = []
+    var linkedSessionID: UUID? = nil
+    var agentCompletion: AgentCompletion? = nil
+    var horizon: TaskHorizon = .shortTerm
+    var agentHelpRequested: Bool = false
+    var completedAt: Date? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, notes, nextAction, source, sourceURL, lane, isSample, completed, createdAt
+        case parentID, labelIDs, linkedSessionID, agentCompletion, horizon, agentHelpRequested, completedAt
+    }
+}
+
+extension TaskItem {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try values.decode(UUID.self, forKey: .id),
+            title: try values.decode(String.self, forKey: .title),
+            notes: try values.decodeIfPresent(String.self, forKey: .notes) ?? "",
+            nextAction: try values.decodeIfPresent(String.self, forKey: .nextAction) ?? "",
+            source: try values.decodeIfPresent(String.self, forKey: .source),
+            sourceURL: try values.decodeIfPresent(String.self, forKey: .sourceURL),
+            lane: try values.decodeIfPresent(TaskLane.self, forKey: .lane) ?? .next,
+            isSample: try values.decodeIfPresent(Bool.self, forKey: .isSample) ?? false,
+            completed: try values.decodeIfPresent(Bool.self, forKey: .completed) ?? false,
+            createdAt: try values.decode(Date.self, forKey: .createdAt),
+            parentID: try values.decodeIfPresent(UUID.self, forKey: .parentID),
+            labelIDs: try values.decodeIfPresent([UUID].self, forKey: .labelIDs) ?? [],
+            linkedSessionID: try values.decodeIfPresent(UUID.self, forKey: .linkedSessionID),
+            agentCompletion: try values.decodeIfPresent(AgentCompletion.self, forKey: .agentCompletion),
+            horizon: try values.decodeIfPresent(TaskHorizon.self, forKey: .horizon) ?? .shortTerm,
+            agentHelpRequested: try values.decodeIfPresent(Bool.self, forKey: .agentHelpRequested) ?? false,
+            completedAt: try values.decodeIfPresent(Date.self, forKey: .completedAt)
+        )
+    }
 }
 
 enum SessionProvider: String, Codable, CaseIterable, Identifiable {
@@ -60,25 +143,106 @@ struct SessionItem: Codable, Identifiable, Equatable {
     var observedAt: Date? = nil
 }
 
-/// Version 1 local file: {"schemaVersion":1,"tasks":[TaskItem],"sessions":[SessionItem]}.
+/// Version 2 local file: {"schemaVersion":2,"tasks":[],"sessions":[],"labels":[]}.
 /// Dates are ISO 8601; task/session IDs are UUID strings. This file contains only
 /// explicitly entered local tasks and bookmarks. There are no account tokens,
 /// private conversation imports, agent control commands, or network operations.
 struct BistSnapshot: Codable, Equatable {
-    var schemaVersion: Int = 1
+    var schemaVersion: Int = 2
     var tasks: [TaskItem] = []
     var sessions: [SessionItem] = []
+    var labels: [TaskLabel] = TaskLabel.defaults
+
+    enum CodingKeys: String, CodingKey { case schemaVersion, tasks, sessions, labels }
+}
+
+extension BistSnapshot {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let version = try values.decode(Int.self, forKey: .schemaVersion)
+        guard version == 1 || version == 2 else {
+            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: values,
+                                                   debugDescription: "Unsupported local data version")
+        }
+        // Migration is in memory only. AppStore persists v2 on the next real
+        // mutation, leaving the original v1 file untouched merely by opening it.
+        self.init(schemaVersion: 2,
+                  tasks: try values.decode([TaskItem].self, forKey: .tasks),
+                  sessions: try values.decode([SessionItem].self, forKey: .sessions),
+                  labels: version == 1
+                    ? (try values.decodeIfPresent([TaskLabel].self, forKey: .labels) ?? TaskLabel.defaults)
+                    : (try values.decode([TaskLabel].self, forKey: .labels)))
+    }
+}
+
+/// Accept the original whole-second ISO 8601 format and retain fractional
+/// seconds for new writes, so rapid completions keep their order after restart.
+private enum BistDateCoding {
+    private static let secondsFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
+    }()
+
+    static func decode(_ decoder: Decoder) throws -> Date {
+        let container = try decoder.singleValueContainer()
+        let text = try container.decode(String.self)
+        if let dot = text.lastIndex(of: ".") {
+            let afterDot = text.index(after: dot)
+            if let zone = text[afterDot...].firstIndex(where: { $0 == "Z" || $0 == "+" || $0 == "-" }) {
+                let digits = text[afterDot..<zone]
+                if !digits.isEmpty, digits.count <= 9,
+                   digits.unicodeScalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 }),
+                   let fraction = Double("0." + digits),
+                   let whole = secondsFormatter.date(from: String(text[..<dot]) + text[zone...]) {
+                    return whole.addingTimeInterval(fraction)
+                }
+            }
+        } else if let whole = secondsFormatter.date(from: text) {
+            return whole
+        }
+        throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid ISO 8601 timestamp")
+    }
+
+    static func encode(_ date: Date, to encoder: Encoder) throws {
+        let interval = date.timeIntervalSince1970
+        guard interval.isFinite else {
+            throw EncodingError.invalidValue(date, .init(codingPath: encoder.codingPath, debugDescription: "Non-finite timestamp"))
+        }
+        var seconds = floor(interval)
+        var nanoseconds = Int(((interval - seconds) * 1_000_000_000).rounded())
+        if nanoseconds == 1_000_000_000 { seconds += 1; nanoseconds = 0 }
+        let whole = secondsFormatter.string(from: Date(timeIntervalSince1970: seconds))
+        guard whole.hasSuffix("Z") else {
+            throw EncodingError.invalidValue(date, .init(codingPath: encoder.codingPath, debugDescription: "Unrepresentable timestamp"))
+        }
+        let text = nanoseconds == 0 ? whole : String(whole.dropLast()) + String(format: ".%09dZ", nanoseconds)
+        var container = encoder.singleValueContainer()
+        try container.encode(text)
+    }
 }
 
 @MainActor
 final class AppStore: ObservableObject {
     @Published private(set) var tasks: [TaskItem] = []
     @Published private(set) var sessions: [SessionItem] = []
+    @Published private(set) var labels: [TaskLabel] = TaskLabel.defaults
     @Published private(set) var storeError: String? = nil
     @Published private(set) var lastActionLabel: String? = nil
     @Published private(set) var canUndo = false
     let directory: URL
     var stateURL: URL { directory.appendingPathComponent("state.json") }
+    var completedHistory: [TaskItem] {
+        tasks.enumerated().filter { $0.element.completed }.sorted { left, right in
+            switch (left.element.completedAt, right.element.completedAt) {
+            case let (leftDate?, rightDate?) where leftDate != rightDate: return leftDate > rightDate
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return left.offset < right.offset
+            }
+        }.map(\.element)
+    }
 
     private struct UndoEntry {
         let snapshot: BistSnapshot
@@ -87,7 +251,7 @@ final class AppStore: ObservableObject {
     private var undoEntries: [UndoEntry] = []
     private var blockedByUnreadableStore = false
     private let fileManager = FileManager.default
-    private var snapshot: BistSnapshot { BistSnapshot(tasks: tasks, sessions: sessions) }
+    private var snapshot: BistSnapshot { BistSnapshot(tasks: tasks, sessions: sessions, labels: labels) }
 
     init(directory: URL? = nil, demo: Bool = false) {
         let fallback = ProcessInfo.processInfo.environment["BIST_DATA_DIR"]
@@ -109,18 +273,18 @@ final class AppStore: ObservableObject {
     @discardableResult
     func reload() -> Bool {
         guard fileManager.fileExists(atPath: stateURL.path) else {
-            tasks = []; sessions = []
+            tasks = []; sessions = []; labels = TaskLabel.defaults
             blockedByUnreadableStore = false
             storeError = nil
-            undoEntries.removeAll(); canUndo = false
+            undoEntries.removeAll(); canUndo = false; lastActionLabel = nil
             return true
         }
         do {
             let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            decoder.dateDecodingStrategy = .custom { try BistDateCoding.decode($0) }
             let value = try decoder.decode(BistSnapshot.self, from: Data(contentsOf: stateURL))
             try validate(value)
-            tasks = value.tasks; sessions = value.sessions
+            tasks = value.tasks; sessions = value.sessions; labels = value.labels
             blockedByUnreadableStore = false
             storeError = nil
             undoEntries.removeAll(); canUndo = false; lastActionLabel = nil
@@ -133,13 +297,31 @@ final class AppStore: ObservableObject {
     }
 
     @discardableResult
-    func addTask(title: String) -> Bool {
+    func addTask(title: String, details: String = "", labelIDs: [UUID] = [],
+                 agentHelpRequested: Bool = false, parentID: UUID? = nil,
+                 horizon: TaskHorizon = .shortTerm) -> Bool {
+        guard !blockedByUnreadableStore else { return false }
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty && clean.count <= 240 else {
             storeError = "Give this task a title of 1–240 characters."
             return false
         }
-        return commit(label: "Task added") { $0.tasks.append(TaskItem(title: clean)) }
+        guard parentID == nil || tasks.contains(where: { $0.id == parentID }) else {
+            storeError = "Choose an existing parent task."; return false
+        }
+        guard details.count <= 8000 else {
+            storeError = "Use details of at most 8,000 characters."; return false
+        }
+        let knownLabels = Set(labels.map(\.id))
+        guard Set(labelIDs).count == labelIDs.count, labelIDs.allSatisfy({ knownLabels.contains($0) }) else {
+            storeError = "Choose each existing label only once."; return false
+        }
+        let inheritedHorizon = tasks.first(where: { $0.id == parentID })?.horizon ?? horizon
+        return commit(label: "Task added") {
+            $0.tasks.append(TaskItem(title: clean, notes: details, parentID: parentID,
+                                    labelIDs: labelIDs, horizon: inheritedHorizon,
+                                    agentHelpRequested: agentHelpRequested))
+        }
     }
 
     /// Imports one explicitly reviewed local batch. Reusing proposal IDs makes a
@@ -176,7 +358,18 @@ final class AppStore: ObservableObject {
     @discardableResult
     func complete(id: UUID) -> Bool {
         guard let index = tasks.firstIndex(where: { $0.id == id }), !tasks[index].completed else { return false }
-        return commit(label: "Task completed") { $0.tasks[index].completed = true }
+        return setUserCompletion(id: id, completed: true)
+    }
+
+    /// User completion never completes descendants or changes agent evidence.
+    @discardableResult
+    func setUserCompletion(id: UUID, completed: Bool) -> Bool {
+        guard !blockedByUnreadableStore, let index = tasks.firstIndex(where: { $0.id == id }) else { return false }
+        guard tasks[index].completed != completed else { storeError = nil; return true }
+        return commit(label: completed ? "Task completed" : "Task reopened") {
+            $0.tasks[index].completed = completed
+            $0.tasks[index].completedAt = completed ? Date() : nil
+        }
     }
 
     @discardableResult
@@ -191,7 +384,8 @@ final class AppStore: ObservableObject {
 
     @discardableResult
     func updateTask(id: UUID, title: String, notes: String, nextAction: String,
-                    source: String? = nil, sourceURL: String? = nil) -> Bool {
+                    source: String? = nil, sourceURL: String? = nil,
+                    agentHelpRequested: Bool? = nil) -> Bool {
         guard !blockedByUnreadableStore else { return false }
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTitle.isEmpty && cleanTitle.count <= 240 else {
@@ -211,6 +405,7 @@ final class AppStore: ObservableObject {
         updated.nextAction = nextAction
         updated.source = nonempty(source)
         updated.sourceURL = cleanURL
+        if let agentHelpRequested { updated.agentHelpRequested = agentHelpRequested }
         // Saving an untouched detail is successful, including before a lane move.
         // Keep it out of the persistence and undo paths because nothing changed.
         guard updated != tasks[index] else {
@@ -220,6 +415,131 @@ final class AppStore: ObservableObject {
         return commit(label: "Task updated") {
             $0.tasks[index] = updated
         }
+    }
+
+    @discardableResult
+    func reparentTask(id: UUID, parentID: UUID?) -> Bool {
+        guard !blockedByUnreadableStore, let index = tasks.firstIndex(where: { $0.id == id }) else { return false }
+        guard parentID == nil || tasks.contains(where: { $0.id == parentID }) else {
+            storeError = "Choose an existing parent task."; return false
+        }
+        let byID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+        var ancestor = parentID
+        var visited = Set<UUID>()
+        while let current = ancestor {
+            guard current != id, visited.insert(current).inserted else {
+                storeError = "A task can’t be its own parent or become a child of its descendants."; return false
+            }
+            ancestor = byID[current]?.parentID
+        }
+        guard tasks[index].parentID != parentID else { storeError = nil; return true }
+        let inheritedHorizon = parentID.flatMap { byID[$0]?.horizon } ?? tasks[index].horizon
+        let descendants = subtreeIDs(rootID: id)
+        return commit(label: "Task parent changed") { value in
+            value.tasks[index].parentID = parentID
+            for descendantIndex in value.tasks.indices where descendants.contains(value.tasks[descendantIndex].id) {
+                value.tasks[descendantIndex].horizon = inheritedHorizon
+            }
+        }
+    }
+
+    /// Group membership belongs to the whole task tree. Acting on a child moves
+    /// its root and siblings too, keeping every checklist in one stable group.
+    @discardableResult
+    func setTaskHorizon(id: UUID, horizon: TaskHorizon) -> Bool {
+        guard !blockedByUnreadableStore, tasks.contains(where: { $0.id == id }) else { return false }
+        let byID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+        var rootID = id
+        while let parentID = byID[rootID]?.parentID { rootID = parentID }
+        guard byID[rootID]?.horizon != horizon else { storeError = nil; return true }
+        let descendants = subtreeIDs(rootID: rootID)
+        return commit(label: "Task group changed") { value in
+            for index in value.tasks.indices where descendants.contains(value.tasks[index].id) {
+                value.tasks[index].horizon = horizon
+            }
+        }
+    }
+
+    @discardableResult
+    func addLabel(name: String, color: TaskLabelColor) -> Bool {
+        guard !blockedByUnreadableStore, let name = validLabelName(name) else { return false }
+        guard !labels.contains(where: { $0.name.lowercased() == name.lowercased() }) else {
+            storeError = "A label with this name already exists."; return false
+        }
+        return commit(label: "Label added") { $0.labels.append(TaskLabel(name: name, color: color)) }
+    }
+
+    @discardableResult
+    func updateLabel(id: UUID, name: String, color: TaskLabelColor) -> Bool {
+        guard !blockedByUnreadableStore, let name = validLabelName(name),
+              let index = labels.firstIndex(where: { $0.id == id }) else { return false }
+        guard !labels.contains(where: { $0.id != id && $0.name.lowercased() == name.lowercased() }) else {
+            storeError = "A label with this name already exists."; return false
+        }
+        let updated = TaskLabel(id: id, name: name, color: color)
+        guard updated != labels[index] else { storeError = nil; return true }
+        return commit(label: "Label updated") { $0.labels[index] = updated }
+    }
+
+    @discardableResult
+    func deleteLabel(id: UUID) -> Bool {
+        guard labels.contains(where: { $0.id == id }) else { return false }
+        return commit(label: "Label removed") { value in
+            value.labels.removeAll { $0.id == id }
+            for index in value.tasks.indices { value.tasks[index].labelIDs.removeAll { $0 == id } }
+        }
+    }
+
+    @discardableResult
+    func setTaskLabels(id: UUID, labelIDs: [UUID]) -> Bool {
+        guard !blockedByUnreadableStore, let index = tasks.firstIndex(where: { $0.id == id }) else { return false }
+        let known = Set(labels.map(\.id))
+        guard Set(labelIDs).count == labelIDs.count, labelIDs.allSatisfy({ known.contains($0) }) else {
+            storeError = "Choose each existing label only once."; return false
+        }
+        guard tasks[index].labelIDs != labelIDs else { storeError = nil; return true }
+        return commit(label: "Task labels updated") { $0.tasks[index].labelIDs = labelIDs }
+    }
+
+    @discardableResult
+    func linkTask(id: UUID, sessionID: UUID?) -> Bool {
+        guard !blockedByUnreadableStore, let index = tasks.firstIndex(where: { $0.id == id }) else { return false }
+        guard sessionID == nil || sessions.contains(where: { $0.id == sessionID }) else {
+            storeError = "Choose an existing saved session."; return false
+        }
+        guard tasks[index].linkedSessionID != sessionID else { storeError = nil; return true }
+        guard tasks[index].agentCompletion == nil else {
+            storeError = "Clear the reviewed agent result before changing its session link."; return false
+        }
+        return commit(label: sessionID == nil ? "Task session unlinked" : "Task session linked") {
+            $0.tasks[index].linkedSessionID = sessionID
+        }
+    }
+
+    @discardableResult
+    func recordAgentCompletion(_ evidence: AgentCompletion, taskID: UUID) -> Bool {
+        guard !blockedByUnreadableStore, let index = tasks.firstIndex(where: { $0.id == taskID }) else { return false }
+        guard tasks[index].linkedSessionID == evidence.sessionID,
+              sessions.contains(where: { $0.id == evidence.sessionID }) else {
+            storeError = "Link this task to the same saved session before recording its result."; return false
+        }
+        guard Self.validEvidence(evidence), !tasks.contains(where: {
+            $0.id != taskID && $0.agentCompletion?.id == evidence.id
+        }) else {
+            storeError = "Use a unique result with a safe artifact link, a summary, and valid observation and review dates."; return false
+        }
+        guard tasks[index].agentCompletion != evidence else { storeError = nil; return true }
+        guard tasks[index].agentCompletion == nil else {
+            storeError = "Clear the previous reviewed agent result before recording a different result."; return false
+        }
+        return commit(label: "Agent result recorded") { $0.tasks[index].agentCompletion = evidence }
+    }
+
+    @discardableResult
+    func clearAgentCompletion(taskID: UUID) -> Bool {
+        guard !blockedByUnreadableStore, let index = tasks.firstIndex(where: { $0.id == taskID }) else { return false }
+        guard tasks[index].agentCompletion != nil else { storeError = nil; return true }
+        return commit(label: "Agent result cleared") { $0.tasks[index].agentCompletion = nil }
     }
 
     @discardableResult
@@ -239,6 +559,9 @@ final class AppStore: ObservableObject {
     @discardableResult
     func removeSession(id: UUID) -> Bool {
         guard sessions.contains(where: { $0.id == id }) else { return false }
+        guard !tasks.contains(where: { $0.linkedSessionID == id || $0.agentCompletion?.sessionID == id }) else {
+            storeError = "Unlink the tasks using this session before removing it."; return false
+        }
         return commit(label: "Session link removed") { $0.sessions.removeAll { $0.id == id } }
     }
 
@@ -246,7 +569,7 @@ final class AppStore: ObservableObject {
     func undo() -> Bool {
         guard let entry = undoEntries.last, !blockedByUnreadableStore else { return false }
         guard write(entry.snapshot) else { return false }
-        tasks = entry.snapshot.tasks; sessions = entry.snapshot.sessions
+        tasks = entry.snapshot.tasks; sessions = entry.snapshot.sessions; labels = entry.snapshot.labels
         undoEntries.removeLast(); canUndo = !undoEntries.isEmpty
         lastActionLabel = "Undone"
         return true
@@ -268,7 +591,19 @@ final class AppStore: ObservableObject {
     @discardableResult
     func clearSamples() -> Bool {
         guard tasks.contains(where: \.isSample) else { return false }
-        return commit(label: "Sample tasks cleared") { $0.tasks.removeAll(where: \.isSample) }
+        return commit(label: "Sample tasks cleared") { value in
+            let byID = Dictionary(uniqueKeysWithValues: value.tasks.map { ($0.id, $0) })
+            value.tasks.removeAll(where: \.isSample)
+            // User-created children of a sample survive. Promote them to the
+            // closest retained ancestor, or to the root, without losing content.
+            for index in value.tasks.indices {
+                var parent = value.tasks[index].parentID
+                while let current = parent, byID[current]?.isSample == true {
+                    parent = byID[current]?.parentID
+                }
+                value.tasks[index].parentID = parent
+            }
+        }
     }
 
     static func safeURL(_ value: String) -> URL? {
@@ -287,6 +622,47 @@ final class AppStore: ObservableObject {
         return clean.isEmpty ? nil : clean
     }
 
+    private func subtreeIDs(rootID: UUID) -> Set<UUID> {
+        var children: [UUID: [UUID]] = [:]
+        for task in tasks {
+            if let parentID = task.parentID { children[parentID, default: []].append(task.id) }
+        }
+        var result: Set<UUID> = [rootID]
+        var pending = [rootID]
+        while let id = pending.popLast() {
+            for childID in children[id] ?? [] where result.insert(childID).inserted {
+                pending.append(childID)
+            }
+        }
+        return result
+    }
+
+    private func validLabelName(_ name: String) -> String? {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isValidLabelName(clean) else {
+            storeError = "Use a label name of 1–40 characters on one line."; return nil
+        }
+        return clean
+    }
+
+    private static func isValidLabelName(_ name: String) -> Bool {
+        !name.isEmpty && name.count <= 40 &&
+        name == name.trimmingCharacters(in: .whitespacesAndNewlines) &&
+        name.rangeOfCharacter(from: .controlCharacters.union(.newlines)) == nil
+    }
+
+    private static func validEvidence(_ evidence: AgentCompletion, now: Date = Date()) -> Bool {
+        let tolerance: TimeInterval = 300
+        return safeURL(evidence.artifactURL) != nil &&
+            !evidence.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            evidence.summary.count <= 4000 &&
+            evidence.observedAt.timeIntervalSince1970.isFinite &&
+            evidence.reviewedAt.timeIntervalSince1970.isFinite &&
+            evidence.observedAt <= now.addingTimeInterval(tolerance) &&
+            evidence.reviewedAt <= now.addingTimeInterval(tolerance) &&
+            evidence.reviewedAt >= evidence.observedAt.addingTimeInterval(-tolerance)
+    }
+
     private func commit(label: String, mutation: (inout BistSnapshot) -> Void) -> Bool {
         guard !blockedByUnreadableStore else { return false }
         let before = snapshot
@@ -297,7 +673,7 @@ final class AppStore: ObservableObject {
         undoEntries.append(UndoEntry(snapshot: before, label: label))
         // Keep local undo bounded while retaining enough steps for repeated actions.
         if undoEntries.count > 100 { undoEntries.removeFirst() }
-        tasks = after.tasks; sessions = after.sessions
+        tasks = after.tasks; sessions = after.sessions; labels = after.labels
         canUndo = true; lastActionLabel = label
         return true
     }
@@ -307,7 +683,7 @@ final class AppStore: ObservableObject {
             try validate(value)
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
+            encoder.dateEncodingStrategy = .custom { try BistDateCoding.encode($0, to: $1) }
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(value).write(to: stateURL, options: .atomic)
             storeError = nil
@@ -320,13 +696,46 @@ final class AppStore: ObservableObject {
 
     private enum ValidationError: Error { case invalidSnapshot }
     private func validate(_ value: BistSnapshot) throws {
-        guard value.schemaVersion == 1,
+        guard value.schemaVersion == 2,
               Set(value.tasks.map(\.id)).count == value.tasks.count,
-              Set(value.sessions.map(\.id)).count == value.sessions.count else { throw ValidationError.invalidSnapshot }
+              Set(value.sessions.map(\.id)).count == value.sessions.count,
+              Set(value.labels.map(\.id)).count == value.labels.count,
+              Set(value.labels.map { $0.name.lowercased() }).count == value.labels.count,
+              value.labels.allSatisfy({ Self.isValidLabelName($0.name) }) else { throw ValidationError.invalidSnapshot }
+        let taskIDs = Set(value.tasks.map(\.id))
+        let sessionIDs = Set(value.sessions.map(\.id))
+        let labelIDs = Set(value.labels.map(\.id))
+        var evidenceIDs = Set<UUID>()
         for task in value.tasks {
             guard !task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   task.title.count <= 240, task.notes.count <= 8000, task.nextAction.count <= 2000,
-                  task.sourceURL == nil || Self.safeURL(task.sourceURL!) != nil else { throw ValidationError.invalidSnapshot }
+                  task.sourceURL == nil || Self.safeURL(task.sourceURL!) != nil,
+                  task.completed || task.completedAt == nil,
+                  task.completedAt == nil || task.completedAt!.timeIntervalSince1970.isFinite,
+                  task.parentID == nil || (task.parentID != task.id && taskIDs.contains(task.parentID!)),
+                  Set(task.labelIDs).count == task.labelIDs.count,
+                  task.labelIDs.allSatisfy({ labelIDs.contains($0) }),
+                  task.linkedSessionID == nil || sessionIDs.contains(task.linkedSessionID!) else { throw ValidationError.invalidSnapshot }
+            if let evidence = task.agentCompletion {
+                guard task.linkedSessionID == evidence.sessionID, sessionIDs.contains(evidence.sessionID),
+                      evidenceIDs.insert(evidence.id).inserted, Self.validEvidence(evidence) else { throw ValidationError.invalidSnapshot }
+            }
+        }
+        // Iterative traversal keeps deeply nested checklists safe from recursion
+        // limits. Already-validated branches make the whole traversal linear.
+        let byID = Dictionary(uniqueKeysWithValues: value.tasks.map { ($0.id, $0) })
+        var resolved = Set<UUID>()
+        for task in value.tasks {
+            if let parentID = task.parentID {
+                guard byID[parentID]?.horizon == task.horizon else { throw ValidationError.invalidSnapshot }
+            }
+            var chain = Set<UUID>()
+            var current: UUID? = task.id
+            while let id = current, !resolved.contains(id) {
+                guard chain.insert(id).inserted else { throw ValidationError.invalidSnapshot }
+                current = byID[id]?.parentID
+            }
+            resolved.formUnion(chain)
         }
         for session in value.sessions {
             guard !session.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
