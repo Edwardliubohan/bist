@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 
-/// A stable partition for the small preview: no timestamps, priorities, or titles
+/// A stable partition for the preview: no timestamps, priorities, or titles
 /// can change the user's order within either horizon.
 struct PreviewTaskSelection<Element> {
     let shortTerm: [Element]
@@ -18,8 +18,8 @@ struct PreviewTaskSelection<Element> {
         let active = items.filter(isOutstanding)
         let short = active.filter(isShortTerm)
         let long = active.filter { !isShortTerm($0) }
-        shortTerm = Array(short.prefix(15))
-        longerTerm = Array(long.prefix(15 - shortTerm.count))
+        shortTerm = short
+        longerTerm = long
         outstandingCount = active.count
     }
 }
@@ -35,7 +35,7 @@ struct CornerLayout {
     static let compactHitSize = CGSize(width: 44, height: 44)
     static let previewWidth: CGFloat = 260
     static let previewGap: CGFloat = 8
-    static let previewMaximumHeight: CGFloat = 240
+    static let previewMaximumHeight: CGFloat = 720
 
     /// Round once while positioning/dragging, never as opening begins. Native
     /// window-server and compositor coordinates then share the same pixel grid.

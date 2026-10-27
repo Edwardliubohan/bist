@@ -97,7 +97,7 @@ final class PreviewPanelController {
     }
 
     private func refreshContent() {
-        let host = NSHostingView(rootView: HoverTaskPreview(store: store, aboveAnchor: aboveAnchor, onHover: { [weak self] inside in self?.previewHoverChanged(inside) }))
+        let host = GlassHostingView(rootView: HoverTaskPreview(store: store, aboveAnchor: aboveAnchor, onHover: { [weak self] inside in self?.previewHoverChanged(inside) }))
         // The panel, not SwiftUI's intrinsic content size, owns screen geometry.
         host.sizingOptions = []
         host.wantsLayer = true
