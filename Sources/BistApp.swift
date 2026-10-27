@@ -79,6 +79,7 @@ final class PanelState: ObservableObject {
 }
 
 final class FloatingPanel: NSPanel {
+    private var synchronizingTextInput = false
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
@@ -96,7 +97,16 @@ final class FloatingPanel: NSPanel {
     }
 
     func refreshTextInsertionPoint() {
-        guard isKeyWindow, let editor = firstResponder as? NSTextView,
+        guard !synchronizingTextInput, isKeyWindow, NSApp.keyWindow === self, let editor = firstResponder as? NSTextView,
+              editor.window === self, editor.isEditable, editor.shouldDrawInsertionPoint,
+              editor.selectedRange().length == 0, !editor.hasMarkedText() else { return }
+        // The first field editor can create its input context during mouse
+        // tracking, before AppKit's next window update registers that context.
+        // Restarting the blink timer alone does not activate the new context.
+        synchronizingTextInput = true
+        defer { synchronizingTextInput = false }
+        NSApp.updateWindows()
+        guard isKeyWindow, NSApp.keyWindow === self, firstResponder === editor,
               editor.window === self, editor.isEditable, editor.shouldDrawInsertionPoint,
               editor.selectedRange().length == 0, !editor.hasMarkedText() else { return }
         editor.insertionPointColor = NSColor(accent)
