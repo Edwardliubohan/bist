@@ -29,3 +29,6 @@ python3 scripts/test-data-location.py
 
 xcrun swiftc -module-cache-path "$PWD/build/module-cache" Sources/BistCore.swift Sources/LocalInbox.swift Sources/NoteStore.swift Tests/NoteStoreTests.swift -o build/tests/note-store
 build/tests/note-store
+
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/TextEntryFocusTests.swift -o build/tests/text-entry-focus
+build/tests/text-entry-focus

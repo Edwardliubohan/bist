@@ -211,8 +211,8 @@ private struct TaskComposer: View {
                 Image(systemName: "plus").font(.system(size: 10)).foregroundColor(accent).frame(height: 25)
                 TextField(draft.parentID == nil ? "Add a task" : "Add a subtask", text: $draft.title, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 12)).lineLimit(1...3).fixedSize(horizontal: false, vertical: true)
-                    .padding(.vertical, 5).focused($nameFocused).onSubmit(submit)
-                    .accessibilityLabel("Task name").bistTextEntry()
+                    .padding(.vertical, 5).onSubmit(submit)
+                    .accessibilityLabel("Task name").bistTextEntry(focused: $nameFocused)
                 if draft.expanded {
                     BistButton { draft.cancel(); nameFocused = false } label: {
                         Image(systemName: "xmark").font(.system(size: 8)).frame(width: 20, height: 25)
@@ -387,9 +387,9 @@ private struct NewTagEntry: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            TextField("New label name", text: $name).textFieldStyle(.plain).bistTextEntry().font(.system(size: 11))
+            TextField("New label name", text: $name).textFieldStyle(.plain).bistTextEntry(focused: $focused).font(.system(size: 11))
                 .padding(7).background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
-                .focused($focused).onSubmit(create).accessibilityLabel("New label name")
+                .onSubmit(create).accessibilityLabel("New label name")
             BistButton("Create", action: create).buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundColor(accent)
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
@@ -876,8 +876,8 @@ private struct TaskLabelManager: View {
                 }
             }
             Text(editingID == nil ? "New label" : "Edit label").font(.system(size: 10, weight: .medium)).foregroundColor(muted)
-            TextField("Label name", text: $name).textFieldStyle(.plain).bistTextEntry().font(.system(size: 12)).padding(9)
-                .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 8)).focused($nameFocused).onSubmit(save).accessibilityLabel("Label name")
+            TextField("Label name", text: $name).textFieldStyle(.plain).bistTextEntry(focused: $nameFocused).font(.system(size: 12)).padding(9)
+                .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 8)).onSubmit(save).accessibilityLabel("Label name")
             HStack(spacing: 8) {
                 ForEach(TaskLabelColor.allCases) { candidate in
                     BistButton(focusRadius: 12) { color = candidate } label: {
