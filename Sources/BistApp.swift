@@ -19,6 +19,7 @@ final class PanelState: ObservableObject {
         didSet { focusContext.keyboardNavigation = focusPolicy.keyboardNavigation }
     }
     var keyboardNavigation: Bool { focusPolicy.keyboardNavigation }
+    @Published var isTransitioning = false
     @Published var reveal: Double = 0
     @Published var openSize = CornerLayout.expandedSize
     @Published var selectedTab = 0
@@ -29,43 +30,51 @@ final class PanelState: ObservableObject {
     @Published var showAgentResults = false
     @Published var showSettings = false
     @Published var notice: String?
-    @Published var transparency = UserDefaults.standard.object(forKey: "panelTransparency")
-        .map { _ in min(1, max(0, UserDefaults.standard.double(forKey: "panelTransparency"))) } ?? 0.5 {
-        didSet { UserDefaults.standard.set(transparency, forKey: "panelTransparency") }
+    private let preferences: UserDefaults
+    @Published var transparency: Double {
+        didSet { preferences.set(transparency, forKey: "panelTransparency") }
     }
-    @Published var opaque = ProcessInfo.processInfo.arguments.contains("--opaque") || UserDefaults.standard.bool(forKey: "opaquePanel") {
-        didSet { UserDefaults.standard.set(opaque, forKey: "opaquePanel") }
+    @Published var opaque: Bool {
+        didSet { preferences.set(opaque, forKey: "opaquePanel") }
     }
-    @Published var reduced = ProcessInfo.processInfo.arguments.contains("--reduced-motion") || UserDefaults.standard.bool(forKey: "reducedMotion") {
-        didSet { UserDefaults.standard.set(reduced, forKey: "reducedMotion") }
+    @Published var reduced: Bool {
+        didSet { preferences.set(reduced, forKey: "reducedMotion") }
     }
-    var resize: ((Bool) -> Void)?
+    init(preferences: UserDefaults = .standard) {
+        self.preferences = preferences
+        transparency = preferences.object(forKey: "panelTransparency")
+            .map { _ in min(1, max(0, preferences.double(forKey: "panelTransparency"))) } ?? 0.5
+        opaque = ProcessInfo.processInfo.arguments.contains("--opaque") || preferences.bool(forKey: "opaquePanel")
+        reduced = ProcessInfo.processInfo.arguments.contains("--reduced-motion") || preferences.bool(forKey: "reducedMotion")
+    }
+    var resize: ((Bool, Bool) -> Void)?
     var hoverChanged: ((Bool) -> Void)?
-    var syncPreviewPreferences: ((Bool, Bool) -> Void)?
+    var syncPreviewPreferences: ((Bool) -> Void)?
+    var syncSurfaceAppearance: ((Double, Bool) -> Void)?
     func selectTab(_ index: Int) {
         detailID = nil; showSessionForm = false; showInbox = false; showAgentResults = false; showSettings = false
         selectedTab = index
     }
-    func openSettings() {
-        setExpanded(true)
+    func openSettings(animated: Bool = true) {
+        setExpanded(true, animated: animated)
         showSettings = true
     }
     func toggleSettings() {
         if showSettings { showSettings = false } else { openSettings() }
     }
     func toggle() { setExpanded(!expanded) }
-    func setExpanded(_ value: Bool) {
+    func setExpanded(_ value: Bool, animated: Bool = true) {
         detailID = nil; showSessionForm = false; showInbox = false; showAgentResults = false; showSettings = false
         if !value { cornerHighlighted = false }
-        expanded = value; resize?(value)
+        expanded = value; resize?(value, animated)
     }
-    func dismiss() {
+    func dismiss(animated: Bool = true) {
         if showSettings { showSettings = false }
         else if detailID != nil { detailID = nil }
         else if showSessionForm { showSessionForm = false }
         else if showInbox { showInbox = false }
         else if showAgentResults { showAgentResults = false }
-        else { setExpanded(false) }
+        else { setExpanded(false, animated: animated) }
     }
 }
 
@@ -78,12 +87,16 @@ final class FloatingPanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var panel: FloatingPanel!
     var statusItem: NSStatusItem!
-    let state = PanelState()
+    let state: PanelState
+    init(state: PanelState = PanelState()) { self.state = state; super.init() }
     var store: AppStore!
     var preview: PreviewPanelController!
     var monitor: Any?
     var screenObserver: NSObjectProtocol?
-    var resizeTimer: Timer?
+    private(set) var transitionGeneration: UInt64 = 0
+    private var transitionTarget: Bool?
+    private var transitionPress: CGPoint?
+    var surface: PanelTransitionSurface? { panel?.contentView as? PanelTransitionSurface }
     var reduceWindowMotion = false
     var compactOrigin: CGPoint?
     var compactDrag: CompactDrag?
@@ -103,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func updateDraggedFrame(_ origin: CGPoint, pointer: CGPoint) {
         guard let screen = screen(for: pointer) else { return }
-        let frame = CornerLayout.dragFrame(expanded: draggingExpanded, origin: origin, visibleFrame: screen.visibleFrame)
+        let frame = CornerLayout.pixelAligned(CornerLayout.dragFrame(expanded: draggingExpanded, origin: origin, visibleFrame: screen.visibleFrame), scale: screen.backingScaleFactor)
         if draggingExpanded { state.openSize = frame.size }
         panel.setFrame(frame, display: true)
         compactOrigin = draggingExpanded
@@ -118,20 +131,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pointer = eventWindow.convertPoint(toScreen: event.locationInWindow)
         if event.type == .leftMouseDown {
             guard event.window === panel else { return false }
+            if state.isTransitioning {
+                let visible = surface?.presentationRect.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY) ?? panel.frame
+                let corner = CGRect(x: visible.maxX - 48, y: visible.maxY - 48, width: 48, height: 48).insetBy(dx: 2, dy: 2)
+                transitionPress = corner.contains(pointer) ? pointer : nil
+                // A press never cancels or snaps an in-flight transition.
+                return true
+            }
             if state.expanded {
-                // Header dragging starts only after the reveal settles. Cancelling
-                // its timer here would strand a partly sized, noninteractive panel.
-                guard resizeTimer == nil else { return false }
                 guard state.focusContext.contains(.drag, point: event.locationInWindow, in: panel) else { return false }
             } else {
-                // Do not freeze an intermediate-size window when a closing logo is grabbed.
-                if resizeTimer != nil { position(false) }
                 guard panel.frame.insetBy(dx: 2, dy: 2).contains(pointer) else { return false }
             }
-            resizeTimer?.invalidate(); resizeTimer = nil
             draggingExpanded = state.expanded
             compactDrag = CompactDrag(pointer: pointer, origin: panel.frame.origin)
             return true
+        }
+        if let press = transitionPress {
+            if event.type == .leftMouseUp {
+                transitionPress = nil
+                if hypot(pointer.x - press.x, pointer.y - press.y) < 4 { state.toggle() }
+                return true
+            }
+            if event.type == .leftMouseDragged {
+                guard hypot(pointer.x - press.x, pointer.y - press.y) >= 4 else { return true }
+                transitionPress = nil
+                draggingExpanded = state.expanded
+                position(state.expanded)
+                compactDrag = CompactDrag(pointer: press, origin: panel.frame.origin)
+            }
         }
         guard var drag = compactDrag else { return false }
         if event.type == .leftMouseDragged || event.type == .leftMouseUp {
@@ -150,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func focusForPointer(_ event: NSEvent) {
-        guard event.type == .leftMouseDown, event.window === panel, state.expanded else { return }
+        guard event.type == .leftMouseDown, event.window === panel, state.expanded, !state.isTransitioning else { return }
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         guard !state.focusContext.hasPresentedPicker else { return }
@@ -172,13 +200,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store = AppStore(directory: directory, demo: args.contains("--demo"))
         preview = PreviewPanelController(store: store)
         state.hoverChanged = { [weak self] inside in self?.preview.cornerHoverChanged(inside) }
-        state.syncPreviewPreferences = { [weak self] motion, transparency in
-            self?.preview.reducedMotion = motion
-            self?.reduceWindowMotion = motion
-            self?.preview.reduceTransparency = transparency
+        state.syncPreviewPreferences = { [weak self] motion in
+            guard let self else { return }
+            self.preview.reducedMotion = motion
+            self.reduceWindowMotion = motion
+            if motion && self.state.isTransitioning { self.position(self.state.expanded) }
         }
         panel = FloatingPanel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
         panel.title = "bist"
+        panel.appearance = NSAppearance(named: .aqua)
         panel.isFloatingPanel = true; panel.level = .floating
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         panel.hidesOnDeactivate = false; panel.becomesKeyOnlyIfNeeded = false
@@ -189,8 +219,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // AppKit owns the fixed corner geometry; child scroll content must not resize the window.
         host.sizingOptions = []
         host.wantsLayer = true; host.layer?.backgroundColor = NSColor.clear.cgColor
-        panel.contentView = host
-        state.resize = { [weak self] expanded in self?.position(expanded, animated: true) }
+        panel.contentView = PanelTransitionSurface(host: host)
+        state.syncSurfaceAppearance = { [weak self] transparency, opaque in
+            self?.surface?.updateAppearance(transparency: transparency, opaque: opaque)
+        }
+        state.resize = { [weak self] expanded, animated in self?.position(expanded, animated: animated) }
         state.expanded = args.contains("--expanded") || args.contains("--demo")
         position(state.expanded)
         panel.orderFrontRegardless()
@@ -220,21 +253,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { self.state.focusPolicy.pointerDown() }
                 return event
             }
+            // Keep hidden/partly revealed fields from receiving typed input or
+            // Tab. Command navigation and Escape still settle immediately.
+            if self.state.isTransitioning && !event.modifierFlags.contains(.command) && event.keyCode != 53 { return nil }
             self.state.focusPolicy.keyDown(code: event.keyCode)
             guard self.panel.isKeyWindow else { return event }
             if event.keyCode == 53 {
                 // Let a child picker consume Escape before the panel navigation does.
                 if self.state.focusContext.hasPresentedPicker { return event }
-                if !self.preview.handleEscape() { self.state.dismiss() }
+                if !self.preview.handleEscape() { self.state.dismiss(animated: false) }
                 return nil
             }
             if event.modifierFlags.contains(.command) {
                 switch event.charactersIgnoringModifiers {
-                case ",": self.state.openSettings(); return nil
-                case "n": self.state.selectedTab = 0; self.state.setExpanded(true); self.state.focusAddToken += 1; return nil
+                case ",": self.state.openSettings(animated: false); return nil
+                case "n": self.state.selectedTab = 0; self.state.setExpanded(true, animated: false); self.state.focusAddToken += 1; return nil
                 case "a": if let editor = self.panel.firstResponder as? NSText { editor.selectAll(nil); return nil }
-                case "1": self.state.selectTab(0); self.state.setExpanded(true); return nil
-                case "2": self.state.selectTab(1); self.state.setExpanded(true); return nil
+                case "1": self.state.selectTab(0); self.state.setExpanded(true, animated: false); return nil
+                case "2": self.state.selectTab(1); self.state.setExpanded(true, animated: false); return nil
                 case "z":
                     if !(self.panel.firstResponder is NSTextView) { _ = self.store.undo(); return nil }
                 case "q": NSApp.terminate(nil); return nil
@@ -252,16 +288,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func position(_ expanded: Bool, animated: Bool = false) {
         let point = compactOrigin.map { CGPoint(x: $0.x + 24, y: $0.y + 24) }
         guard let screen = point.flatMap({ self.screen(for: $0) }) ?? panel?.screen ?? NSScreen.main else { return }
-        resizeTimer?.invalidate()
-        resizeTimer = nil
-        preview.setExpanded(expanded)
-        let anchor = compactOrigin.map { CornerLayout.frame(expanded: false, visibleFrame: screen.visibleFrame, compactOrigin: $0) }
+        let requestedAnchor = compactOrigin.map { CornerLayout.frame(expanded: false, visibleFrame: screen.visibleFrame, compactOrigin: $0) }
             ?? CornerLayout.frame(expanded: false, visibleFrame: screen.visibleFrame)
-        compactOrigin = anchor.origin
-        preview.reposition(anchor: anchor, visibleFrame: screen.visibleFrame)
+        let anchor = CornerLayout.pixelAligned(requestedAnchor, scale: screen.backingScaleFactor)
         let open = CornerLayout.frame(expanded: true, visibleFrame: screen.visibleFrame, compactOrigin: anchor.origin)
-        state.openSize = open.size
         let target = expanded ? open : anchor
+        // Idempotent opens (Settings / menu / shortcuts) cannot restart a reveal.
+        let motionDisabled = reduceWindowMotion || state.reduced || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if animated && !motionDisabled && state.isTransitioning && transitionTarget == expanded { return }
+        let visible = surface?.presentationRect.offsetBy(dx: panel.frame.minX, dy: panel.frame.minY) ?? panel.frame
+        transitionGeneration &+= 1
+        let generation = transitionGeneration
+        transitionTarget = expanded
+        compactOrigin = anchor.origin
+        state.openSize = open.size
+        // Suppress hover previews for BOTH directions until the compositor settles.
+        preview.setExpanded(true)
+        preview.reposition(anchor: anchor, visibleFrame: screen.visibleFrame)
+        state.setHovered(false)
         if expanded {
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
@@ -269,25 +313,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.focusContext.dismissTextEntry()
             panel.makeFirstResponder(nil)
         }
-        guard animated && !reduceWindowMotion && !state.reduced && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            state.reveal = expanded ? 1 : 0
-            panel.setFrame(target, display: true)
+        let shouldAnimate = animated && surface != nil && visible != target && !motionDisabled
+        guard shouldAnimate, let surface else {
+            finishTransition(expanded, target: target, contentSize: open.size, generation: generation)
             return
         }
-        let start = panel.frame
-        let startReveal = state.reveal
-        let started = ProcessInfo.processInfo.systemUptime
-        let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
-            MainActor.assumeIsolated {
-                guard let self else { timer.invalidate(); return }
-                let progress = min(1, (ProcessInfo.processInfo.systemUptime - started) / PanelMotion.duration)
-                self.state.reveal = startReveal + ((expanded ? 1 : 0) - startReveal) * PanelMotion.fraction(progress)
-                self.panel.setFrame(PanelMotion.frame(from: start, to: target, progress: progress), display: true)
-                if progress == 1 { timer.invalidate(); self.resizeTimer = nil }
-            }
+        state.isTransitioning = true
+        // A single stable native window covers both endpoints. Window-server
+        // rounding and SwiftUI relayout no longer happen on every animation frame.
+        let stage = open.union(anchor).union(visible)
+        let startRect = visible.offsetBy(dx: -stage.minX, dy: -stage.minY)
+        let targetRect = target.offsetBy(dx: -stage.minX, dy: -stage.minY)
+        let distance = max(abs(visible.width - target.width) / max(1, open.width - anchor.width),
+                           abs(visible.height - target.height) / max(1, open.height - anchor.height))
+        let duration = PanelMotion.duration * min(1, max(0.35, distance))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        panel.setFrame(stage, display: false)
+        surface.frame = CGRect(origin: .zero, size: stage.size)
+        surface.animate(from: startRect, to: targetRect, contentSize: open.size, duration: duration) { [weak self] in
+            self?.finishTransition(expanded, target: target, contentSize: open.size, generation: generation)
         }
-        resizeTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+        let curve = PanelMotion.curve
+        withAnimation(.timingCurve(curve.x1, curve.y1, curve.x2, curve.y2, duration: duration)) { state.reveal = expanded ? 1 : 0 }
+        // Flush this endpoint update once, before the compositor begins. There
+        // are no layout calls on individual animation frames.
+        surface.host.layoutSubtreeIfNeeded()
+        CATransaction.commit()
+    }
+
+    private func finishTransition(_ expanded: Bool, target: CGRect, contentSize: CGSize, generation: UInt64) {
+        // Removing a CA animation can invoke its old completion. Only the newest
+        // request is allowed to resize the window or re-enable the page.
+        guard generation == transitionGeneration else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        var transaction = Transaction(); transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            state.reveal = expanded ? 1 : 0
+            state.isTransitioning = false
+        }
+        panel.setFrame(target, display: false)
+        surface?.frame = CGRect(origin: .zero, size: target.size)
+        surface?.settle(rect: CGRect(origin: .zero, size: target.size), contentSize: contentSize)
+        panel.invalidateShadow()
+        CATransaction.commit()
+        transitionTarget = nil
+        preview.setExpanded(expanded)
     }
     @objc func togglePanel() {
         if NSApp.currentEvent?.type == .rightMouseUp {
@@ -304,14 +376,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc func showPanel() { state.setExpanded(true); panel.makeKeyAndOrderFront(nil) }
     @objc func quit() { NSApp.terminate(nil) }
-}
-
-struct GlassMaterial: NSViewRepresentable {
-    let opaque: Bool
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView(); view.blendingMode = .behindWindow; view.material = .popover; view.alphaValue = 1; view.state = .active; view.appearance = NSAppearance(named: .aqua); return view
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) { view.isHidden = opaque }
 }
 
 /// Track the inactive floating panel too, without making it key or intercepting clicks.
@@ -371,18 +435,15 @@ struct BistView: View {
     let directory: URL
     @StateObject private var checklistViewState = ChecklistViewState()
     @StateObject private var inspectorDrafts = TaskInspectorDrafts()
+    @StateObject private var localSessions = LocalSessionConnection()
+    @StateObject private var sessionBrowser = SessionBrowserState()
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var active: [TaskItem] { store.tasks.filter { !$0.completed } }
     var opaque: Bool { state.opaque || reduceTransparency }
     var motion: Animation? { reduceMotion || state.reduced ? nil : .easeInOut(duration: PanelMotion.duration) }
     var body: some View {
-        ZStack {
-            GlassMaterial(opaque: opaque)
-            ivory.opacity(opaque ? 1 : 0.92 - 0.38 * state.transparency)
-            LinearGradient(colors: [.white.opacity(0.20), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
-                .allowsHitTesting(false)
-        }
+        Color.clear
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topTrailing) {
             // An overlay cannot impose the open page's minimum size on the
@@ -390,24 +451,12 @@ struct BistView: View {
             expanded
                 .frame(width: state.openSize.width, height: state.openSize.height)
                 .opacity(state.reveal)
-                .allowsHitTesting(state.expanded && state.reveal > 0.98)
-                .disabled(!state.expanded || state.reveal <= 0.98)
-                .accessibilityHidden(!state.expanded)
+                .allowsHitTesting(state.expanded && !state.isTransitioning)
+                .disabled(!state.expanded && !state.isTransitioning)
+                .accessibilityHidden(!state.expanded || state.isTransitioning)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
         .overlay(alignment: .topTrailing) { collapsed.padding(2) }
-        .clipShape(RoundedRectangle(cornerRadius: 16 + 9 * state.reveal, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16 + 9 * state.reveal, style: .continuous).strokeBorder(LinearGradient(colors: [.white.opacity(0.95), .white.opacity(0.3), .white.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
-        .overlay(RoundedRectangle(cornerRadius: 16 + 9 * state.reveal, style: .continuous).inset(by: 1.5).strokeBorder(ink.opacity(0.035), lineWidth: 0.5))
-        .overlay {
-            if state.reveal < 1 {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .inset(by: 1)
-                    .strokeBorder(cornerOrange.opacity(state.cornerHighlighted ? 0.32 * (1 - state.reveal) : 0), lineWidth: 1)
-                    .allowsHitTesting(false)
-            }
-        }
-        .animation(reduceMotion || state.reduced ? nil : .easeOut(duration: 0.16), value: state.cornerHighlighted)
         .foregroundColor(ink).font(.system(size: 13))
         .preferredColorScheme(.light)
         .tint(accent)
@@ -415,22 +464,22 @@ struct BistView: View {
         .onPreferenceChange(BistInteractionRegionsKey.self) { state.focusContext.interactionRegions = $0 }
         .environment(\.bistReduced, reduceMotion || state.reduced)
         .environmentObject(state.focusContext)
-        .onAppear { syncPreviewPreferences() }
+        .onAppear { syncPreviewPreferences(); syncSurfaceAppearance() }
         .onChange(of: store.tasks) { _, tasks in
             checklistViewState.creation.reconcileParent(tasks: tasks)
             let retained = Set(tasks.map(\.id))
             if let id = state.detailID, !retained.contains(id) { state.detailID = nil }
             inspectorDrafts.retainTasks(ids: retained, undoableIDs: store.undoTaskIDs)
         }
-        .onChange(of: opaque) { syncPreviewPreferences() }
         .onChange(of: reduceMotion || state.reduced) { syncPreviewPreferences() }
+        .onChange(of: state.transparency) { syncSurfaceAppearance() }
+        .onChange(of: opaque) { syncSurfaceAppearance() }
     }
-    private func syncPreviewPreferences() { state.syncPreviewPreferences?(reduceMotion || state.reduced, opaque) }
+    private func syncPreviewPreferences() { state.syncPreviewPreferences?(reduceMotion || state.reduced) }
+    private func syncSurfaceAppearance() { state.syncSurfaceAppearance?(state.transparency, opaque) }
     var collapsed: some View {
         BistButton(focusRadius: 13) { state.toggle() } label: {
-            BistFace(size: 25, isHovered: state.corner.isHovered, isExpanded: state.expanded, reduceMotion: reduceMotion || state.reduced)
-                .rotationEffect(.degrees(reduceMotion || state.reduced ? 0 : 90 * state.reveal))
-                .scaleEffect(reduceMotion || state.reduced ? 1 : 1 - 0.08 * sin(.pi * state.reveal))
+            BistFace(size: 25, isHovered: false, isExpanded: state.expanded, reduceMotion: reduceMotion || state.reduced)
                 .shadow(color: cornerOrange.opacity(state.cornerHighlighted ? 0.24 * (1 - state.reveal) : 0), radius: 4, y: 1)
                 .overlay(alignment: .topTrailing) {
                     if active.contains(where: { $0.lane == .attention }) {
@@ -474,7 +523,10 @@ struct BistView: View {
             } else if state.showAgentResults {
                 AgentResultsView(store: store, directory: directory) { state.showAgentResults = false }.transition(.opacity)
             } else if state.showSessionForm {
-                SessionForm(store: store) { state.showSessionForm = false }.transition(.opacity)
+                SessionForm(store: store, close: { state.showSessionForm = false }, saved: {
+                    sessionBrowser.collection = .saved; sessionBrowser.query = ""; sessionBrowser.provider = nil
+                    state.showSessionForm = false
+                }).transition(.opacity)
             } else if state.showInbox {
                 InboxView(store: store, directory: directory) { state.showInbox = false }.transition(.opacity)
             } else {
@@ -488,7 +540,6 @@ struct BistView: View {
             }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(ivory.opacity(opaque ? 1 : 0.62))
             .clipped()
             .animation(navigationMotion, value: navigationID)
         }
@@ -527,7 +578,7 @@ struct BistView: View {
     var tabs: some View {
         HStack(spacing: 3) {
             tab("Tasks", number: active.count, index: 0)
-            tab("Sessions", number: store.sessions.count, index: 1)
+            tab("Sessions", number: 0, index: 1)
         }
     }
     func tab(_ title: String, number: Int, index: Int) -> some View {
@@ -555,60 +606,13 @@ struct BistView: View {
         }
     }
     var sessionContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack { Text("Your agent spaces").font(.system(size: 11, weight: .medium)).foregroundColor(muted); Spacer(); Text("Local links").font(.system(size: 9, weight: .medium)).foregroundColor(accent).padding(.horizontal, 7).padding(.vertical, 4).background(accent.opacity(0.08), in: Capsule()) }.padding(.horizontal, 23).padding(.bottom, 12)
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(SessionProvider.allCases, id: \.self) { provider in
-                        providerCard(provider)
-                    }
-                    ForEach(store.sessions) { session in sessionRow(session) }
-                }.padding(.horizontal, 17)
-            }
-            Spacer(minLength: 8)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) { Image(systemName: "lock.shield"); Text("Only what you choose to link").fontWeight(.medium) }.font(.system(size: 11))
-                Text("Links open in your browser. Live status and agent controls are not connected.").font(.system(size: 11)).lineSpacing(3).foregroundColor(muted)
-            }.padding(13).frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(0.36), in: RoundedRectangle(cornerRadius: 13)).padding(.horizontal, 17).padding(.bottom, 12)
-            bottomStatus.padding(.horizontal, 19).padding(.bottom, 8)
-            BistButton { state.showSessionForm = true } label: { Label("Add a session link", systemImage: "plus").font(.system(size: 12, weight: .medium)).frame(maxWidth: .infinity) }.buttonStyle(TactileStyle()).padding(.horizontal, 17).padding(.bottom, 18)
-        }
-    }
-    func providerCard(_ provider: SessionProvider) -> some View {
-        HStack(spacing: 10) {
-            providerGlyph(provider)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(providerName(provider)).font(.system(size: 12, weight: .semibold))
-                Text("Not connected").font(.system(size: 10)).foregroundColor(muted)
-                Text("Last observed: never").font(.system(size: 9)).foregroundColor(muted)
-            }
-            Spacer(minLength: 2)
-            Circle().strokeBorder(muted.opacity(0.5), lineWidth: 1).frame(width: 7, height: 7).accessibilityLabel("Disconnected")
-        }.padding(12).background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14)).overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.65), lineWidth: 0.7))
-    }
-    func sessionRow(_ session: SessionItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(session.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                    Text("\(providerName(session.provider)) · Status unknown").font(.system(size: 9)).foregroundColor(muted)
-                }
-                Spacer()
-                if let string = session.url, let url = safeURL(string) { BistButton { NSWorkspace.shared.open(url) } label: { Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .medium)) }.buttonStyle(TactileStyle(compact: true)).accessibilityLabel("Open \(session.title)") }
-                Menu { Button("Remove local link") { _ = store.removeSession(id: session.id) } } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().bistPointingHand().accessibilityLabel("Options for \(session.title)")
-            }
-            Text("Last observed: never").font(.system(size: 9)).foregroundColor(muted)
-        }.padding(12).background(accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 13))
+        SessionsPane(store: store, connection: localSessions, browser: sessionBrowser, active: state.expanded,
+                     addLink: { state.showSessionForm = true })
     }
 }
 
 func providerName(_ p: SessionProvider) -> String {
     switch p { case .claudeCode: return "Claude Code"; case .codex: return "ChatGPT / Codex"; case .muse: return "Meta Muse" }
-}
-func providerGlyph(_ p: SessionProvider) -> some View {
-    let glyph: String = p == .claudeCode ? "asterisk" : p == .codex ? "command" : "infinity"
-    let color: Color = p == .claudeCode ? Color(red: 0.64, green: 0.42, blue: 0.31) : p == .codex ? Color(red: 0.32, green: 0.48, blue: 0.43) : accent
-    return Image(systemName: glyph).font(.system(size: 19, weight: .medium)).foregroundColor(color).frame(width: 38, height: 38).background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.7), lineWidth: 0.7))
 }
 func safeURL(_ string: String) -> URL? {
     guard let u = URL(string: string), ["https", "http"].contains(u.scheme?.lowercased() ?? ""), let host = u.host, !host.isEmpty, u.user == nil, u.password == nil else { return nil }; return u
@@ -617,6 +621,7 @@ func safeURL(_ string: String) -> URL? {
 struct SessionForm: View {
     @ObservedObject var store: AppStore
     let close: () -> Void
+    let saved: () -> Void
     @State private var provider: SessionProvider = .codex
     @State private var title = ""
     @State private var url = ""
@@ -624,16 +629,27 @@ struct SessionForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 17) {
             BistButton(action: close) { Label("Sessions", systemImage: "chevron.left").font(.system(size: 11, weight: .medium)) }.buttonStyle(.plain).foregroundColor(accent)
-            Text("Keep a session close.").font(.system(size: 21, weight: .medium))
-            Text("Save a link you already have. Adding a link does not connect an account or reveal its status.").font(.system(size: 12)).foregroundColor(muted).lineSpacing(3)
-            Picker("Product", selection: $provider) { ForEach(SessionProvider.allCases, id: \.self) { Text(providerName($0)).tag($0) } }.pickerStyle(.menu).bistPointingHand()
-            TextField("Session title", text: $title).textFieldStyle(.plain).bistTextEntry().padding(12).background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 10)).accessibilityLabel("Session title")
-            TextField("https://…", text: $url).textFieldStyle(.plain).bistTextEntry().padding(12).background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 10)).accessibilityLabel("Session URL")
+            Text("Add a session link").font(.system(size: 17, weight: .semibold))
+            Text("Save an existing session URL. Local Codex and Claude sessions appear automatically under Recent.").font(.system(size: 12)).foregroundColor(muted).lineSpacing(3)
+            Picker("Provider", selection: $provider) { ForEach(SessionProvider.allCases, id: \.self) { Text(providerName($0)).tag($0) } }.pickerStyle(.menu).bistPointingHand()
+            linkField("Session title", text: $title, hint: "A name you’ll recognize")
+            linkField("Session URL", text: $url, hint: "https://…")
             if let saveError = store.storeError { Text(saveError).font(.system(size: 11)).foregroundColor(.red) }
             if error { Text("Enter a title and a full http or https link without credentials.").font(.system(size: 11)).foregroundColor(.red) }
             Spacer()
-            BistButton { error = false; guard safeURL(url) != nil && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = true; return }; if store.addSession(provider: provider, title: title, url: url) { close() } } label: { Text("Save local link").frame(maxWidth: .infinity).font(.system(size: 12, weight: .semibold)) }.buttonStyle(TactileStyle(prominent: true))
+            BistButton { error = false; guard safeURL(url) != nil && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { error = true; return }; if store.addSession(provider: provider, title: title, url: url) { saved() } } label: { Text("Save link").frame(maxWidth: .infinity).font(.system(size: 12, weight: .semibold)) }.buttonStyle(TactileStyle(prominent: true))
         }.padding(.horizontal, 23).padding(.bottom, 23)
+    }
+    private func linkField(_ label: String, text: Binding<String>, hint: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.system(size: 11, weight: .medium))
+            ZStack(alignment: .leading) {
+                if text.wrappedValue.isEmpty {
+                    Text(hint).font(.system(size: 12)).foregroundColor(muted).allowsHitTesting(false).accessibilityHidden(true)
+                }
+                TextField("", text: text).textFieldStyle(.plain).font(.system(size: 12)).bistTextEntry().accessibilityLabel(label)
+            }.padding(10).background(ink.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        }
     }
 }
 

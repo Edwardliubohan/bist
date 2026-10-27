@@ -57,6 +57,6 @@ The app reads only on explicit review. File access uses a local lock, validation
 
 ## What is not connected
 
-This version has no provider adapter, authenticated agent account connection, automatic drafting, running-status feed, background watcher, scheduler, private-chat import, or automatic transmission of task text. Opening a result link is an explicit user action.
+The local session adapter discovers Codex and Claude Code session metadata and can reopen a session in its CLI. It does not provide automatic drafting, a running-status feed, a background watcher, a scheduler, private-chat import, or automatic transmission of task text. Existing CLI logins handle authentication when resuming. Opening a result link is an explicit user action.
 
 A future adapter needs a supported provider API, separately approved access, an exact task/session scope, clear outbound data rules, and reliable completion events with output evidence. It must not treat a local proposal as a verified provider event. End-to-end adapter behavior must be tested before bist can claim automatic solving or drafting works.

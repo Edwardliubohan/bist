@@ -24,6 +24,7 @@ struct PreviewTaskSelection<Element> {
 /// Screen-space geometry for the stationary corner control and expanded panel.
 /// Coordinates use AppKit's bottom-left origin and the screen's visible frame.
 struct CornerLayout {
+    static let cornerRadius: CGFloat = 16
     static let compactSize = CGSize(width: 48, height: 48)
     static let expandedSize = CGSize(width: 360, height: 560)
     static let edgeInset: CGFloat = 16
@@ -32,6 +33,15 @@ struct CornerLayout {
     static let previewWidth: CGFloat = 260
     static let previewGap: CGFloat = 8
     static let previewMaximumHeight: CGFloat = 240
+
+    /// Round once while positioning/dragging, never as opening begins. Native
+    /// window-server and compositor coordinates then share the same pixel grid.
+    static func pixelAligned(_ frame: CGRect, scale: CGFloat) -> CGRect {
+        let scale = max(1, scale)
+        return CGRect(x: (frame.minX * scale).rounded() / scale,
+                      y: (frame.minY * scale).rounded() / scale,
+                      width: frame.width, height: frame.height)
+    }
 
     static func previewRegions(pointer: CGPoint, anchor: CGRect, preview: CGRect?) -> Set<HoverPreviewInteraction.Region> {
         var regions = Set<HoverPreviewInteraction.Region>()
