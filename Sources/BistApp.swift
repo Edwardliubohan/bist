@@ -138,12 +138,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.makeKeyAndOrderFront(nil)
         guard !state.focusContext.hasPresentedPicker else { return }
         if state.focusContext.contains(.text, point: event.locationInWindow, in: panel) { return }
-        var hit = panel.contentView.flatMap { $0.hitTest($0.convert(event.locationInWindow, from: nil)) }
-        while let view = hit {
-            if let field = view as? NSTextField, (field.isEditable || field.isSelectable) { return }
-            if let text = view as? NSTextView, (text.isEditable || text.isSelectable) { return }
-            hit = view.superview
-        }
         state.focusContext.dismissTextEntry()
         panel.makeFirstResponder(nil)
     }

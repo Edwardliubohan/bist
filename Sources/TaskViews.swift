@@ -183,7 +183,6 @@ private struct TaskComposer: View {
                 TextField(draft.parentID == nil ? "Add a task" : "Add a subtask", text: $draft.title, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 12)).lineLimit(1...3).fixedSize(horizontal: false, vertical: true)
                     .padding(.vertical, 5).focused($nameFocused).onSubmit(submit)
-                    .simultaneousGesture(TapGesture().onEnded { nameFocused = true })
                     .accessibilityLabel("Task name").bistTextEntry()
                 if draft.expanded {
                     BistButton { draft.cancel(); nameFocused = false } label: {
