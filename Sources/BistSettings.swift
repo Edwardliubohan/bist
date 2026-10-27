@@ -54,14 +54,7 @@ struct BistSettingsView: View {
                         note("Drag the handle beside a task. Drop at a row’s edge to reorder, or in its center to nest. Drop on a list heading to move between lists.")
                         note("Right-click a task for Move to… and Delete. Deleting a parent keeps its subtasks unless you choose to delete both. Undo restores the change.")
                     }
-                    VStack(alignment: .leading, spacing: 9) {
-                        heading("Keyboard")
-                        shortcut("New task", "⌘N")
-                        shortcut("Tasks / Sessions", "⌘1 / ⌘2")
-                        shortcut("Settings", "⌘,")
-                        shortcut("Undo task change", "⌘Z")
-                        shortcut("Go back / collapse", "Esc")
-                    }
+                    BistShortcutList()
                     VStack(alignment: .leading, spacing: 8) {
                         heading("Local data")
                         settingsAction("Reload task file", symbol: "arrow.clockwise") { _ = store.reload() }
@@ -84,11 +77,87 @@ struct BistSettingsView: View {
     }
     private func heading(_ title: String) -> some View { Text(title).font(.system(size: 13, weight: .semibold)) }
     private func note(_ text: String) -> some View { Text(text).font(.system(size: 10)).foregroundColor(muted).fixedSize(horizontal: false, vertical: true) }
-    private func shortcut(_ title: String, _ keys: String) -> some View {
-        HStack { Text(title); Spacer(); Text(keys).foregroundColor(muted) }
-    }
     private func settingsAction(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
         BistButton(action: action) { Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 30).contentShape(Rectangle()) }
             .buttonStyle(.plain)
+    }
+}
+
+/// The same reference is available from the header and Settings.
+struct BistShortcutList: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Keyboard shortcuts").font(.system(size: 13, weight: .semibold))
+            Text("Use these while bist has keyboard focus.")
+                .font(.system(size: 10)).foregroundColor(muted)
+            group("Tasks and navigation") {
+                shortcut("Focus new task", keys: "⌘N", spoken: "Command N")
+                shortcut("Show Tasks", keys: "⌘1", spoken: "Command 1")
+                shortcut("Show Sessions", keys: "⌘2", spoken: "Command 2")
+                shortcut("Open Settings", keys: "⌘,", spoken: "Command comma")
+                shortcut("Undo task change", keys: "⌘Z", spoken: "Command Z")
+                shortcut("Dismiss / go back / collapse", keys: "Esc", spoken: "Escape")
+                shortcut("Quit bist", keys: "⌘Q", spoken: "Command Q")
+            }
+            group("Keyboard navigation") {
+                shortcut("Next control", keys: "Tab", spoken: "Tab")
+                shortcut("Previous control", keys: "⇧Tab", spoken: "Shift Tab")
+                shortcut("Activate focused button", keys: "Space / Return", spoken: "Space or Return")
+            }
+            group("While editing text") {
+                shortcut("Cut / copy / paste", keys: "⌘X / ⌘C / ⌘V", spoken: "Command X, Command C, Command V")
+                shortcut("Select all", keys: "⌘A", spoken: "Command A")
+                shortcut("Undo text edit", keys: "⌘Z", spoken: "Command Z")
+            }
+        }.font(.system(size: 11)).foregroundColor(ink)
+    }
+
+    private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.system(size: 10, weight: .semibold)).foregroundColor(muted)
+            content()
+        }
+    }
+
+    private func shortcut(_ title: String, keys: String, spoken: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Text(keys).foregroundColor(muted).fixedSize()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(spoken)")
+    }
+}
+
+struct BistShortcutButton: View {
+    @EnvironmentObject private var focusContext: BistFocusContext
+    @State private var presented = false
+    @State private var presentationID = UUID()
+
+    var body: some View {
+        BistButton {
+            focusContext.setPickerPresented(id: presentationID, presented: true)
+            presented = true
+        } label: {
+            Image(systemName: "keyboard").font(.system(size: 13))
+                .foregroundColor(presented ? accent : muted)
+                .frame(width: 30, height: 32).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).accessibilityLabel("Keyboard shortcuts").help("Keyboard shortcuts")
+        .popover(isPresented: $presented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 14) {
+                ScrollView { BistShortcutList().padding(2) }
+                    .frame(maxHeight: 440)
+                BistButton("Done") { presented = false }
+                    .buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundColor(accent)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(16).frame(width: 320).background(ivory)
+            .environmentObject(focusContext)
+            .onExitCommand { presented = false }
+        }
+        .onChange(of: presented) { focusContext.setPickerPresented(id: presentationID, presented: presented) }
+        .onDisappear { focusContext.setPickerPresented(id: presentationID, presented: false) }
     }
 }
