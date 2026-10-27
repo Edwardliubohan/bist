@@ -69,9 +69,15 @@ struct CornerLayout {
 
     static func clamped(_ frame: CGRect, to bounds: CGRect) -> CGRect {
         let bounds = bounds.standardized
-        return CGRect(x: min(max(frame.minX, bounds.minX), bounds.maxX - frame.width),
-                      y: min(max(frame.minY, bounds.minY), bounds.maxY - frame.height),
-                      width: frame.width, height: frame.height)
+        let size = CGSize(width: min(frame.width, bounds.width), height: min(frame.height, bounds.height))
+        return CGRect(x: min(max(frame.minX, bounds.minX), bounds.maxX - size.width),
+                      y: min(max(frame.minY, bounds.minY), bounds.maxY - size.height),
+                      width: size.width, height: size.height)
+    }
+
+    static func dragFrame(expanded: Bool, origin: CGPoint, visibleFrame: CGRect) -> CGRect {
+        let size = frame(expanded: expanded, visibleFrame: visibleFrame).size
+        return clamped(CGRect(origin: origin, size: size), to: visibleFrame)
     }
 
     static func frame(expanded: Bool, visibleFrame: CGRect) -> CGRect {

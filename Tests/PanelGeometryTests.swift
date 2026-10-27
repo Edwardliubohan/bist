@@ -95,6 +95,13 @@ struct PanelGeometryTests {
         let bottomAnchor = CornerLayout.frame(expanded: false, visibleFrame: screen, compactOrigin: .zero)
         expect(CornerLayout.previewFrame(anchor: bottomAnchor, contentHeight: 171, visibleFrame: screen).minY == bottomAnchor.maxY, "bottom-edge preview opens above icon")
 
+        let shortDestination = CGRect(x: -800, y: -500, width: 800, height: 500)
+        let crossDisplay = CornerLayout.dragFrame(expanded: true, origin: CGPoint(x: -500, y: -500), visibleFrame: shortDestination)
+        expect(shortDestination.contains(crossDisplay), "drag refits expanded panel on shorter destination display")
+        expect(crossDisplay.size == CGSize(width: 360, height: 468), "drag uses destination fitted content size")
+        expect(CornerLayout.dragFrame(expanded: true, origin: .zero, visibleFrame: screen).size == CornerLayout.expandedSize, "drag restores preferred size on a larger display")
+        expect(shortDestination.contains(CornerLayout.clamped(CGRect(x: -2000, y: -1000, width: 1000, height: 900), to: shortDestination)), "generic clamp also fits oversized frames")
+
         let inputRegions = [BistInteractionRegion(kind: .text, rect: CGRect(x: 40, y: 490, width: 240, height: 25)),
                             BistInteractionRegion(kind: .drag, rect: CGRect(x: 190, y: 0, width: 90, height: 48))]
         expect(BistInteractionRegion.contains(.text, point: CGPoint(x: 100, y: 55), contentHeight: 560, regions: inputRegions), "native input click maps into SwiftUI field bounds")

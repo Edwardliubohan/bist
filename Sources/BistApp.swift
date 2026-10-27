@@ -86,7 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func updateDraggedFrame(_ origin: CGPoint, pointer: CGPoint) {
         guard let screen = screen(for: pointer) else { return }
-        let frame = CornerLayout.clamped(CGRect(origin: origin, size: panel.frame.size), to: screen.visibleFrame)
+        let frame = CornerLayout.dragFrame(expanded: draggingExpanded, origin: origin, visibleFrame: screen.visibleFrame)
+        if draggingExpanded { state.openSize = frame.size }
         panel.setFrame(frame, display: true)
         compactOrigin = draggingExpanded
             ? CGPoint(x: frame.maxX - CornerLayout.compactSize.width, y: frame.maxY - CornerLayout.compactSize.height)
@@ -101,6 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if event.type == .leftMouseDown {
             guard event.window === panel else { return false }
             if state.expanded {
+                // Header dragging starts only after the reveal settles. Cancelling
+                // its timer here would strand a partly sized, noninteractive panel.
+                guard resizeTimer == nil else { return false }
                 guard state.focusContext.contains(.drag, point: event.locationInWindow, in: panel) else { return false }
             } else {
                 // Do not freeze an intermediate-size window when a closing logo is grabbed.
@@ -636,6 +640,7 @@ struct InboxView: View {
     }
 }
 
+#if !BIST_TESTING
 @main
 struct BistMain {
     @MainActor static func main() {
@@ -647,3 +652,4 @@ struct BistMain {
         withExtendedLifetime(delegate) {}
     }
 }
+#endif
