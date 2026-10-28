@@ -193,6 +193,7 @@ struct ChecklistPane: View {
 }
 
 private struct TaskComposer: View {
+    @EnvironmentObject private var bobot: BobotStore
     @ObservedObject var store: AppStore
     @ObservedObject var draft: TaskCreationDraft
     var onCreated: (UUID?) -> Void = { _ in }
@@ -247,6 +248,14 @@ private struct TaskComposer: View {
                         .accessibilityLabel("Optional task details")
                 }
             }
+            if let id = draft.pendingBobotTaskID {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Task saved. Bobot assignment needs retry.").font(.system(size: 10)).foregroundColor(.red)
+                    BistButton("Retry Bobot assignment") {
+                        if let task = store.tasks.first(where: { $0.id == id }), bobot.assign(task) { draft.pendingBobotTaskID = nil }
+                    }.buttonStyle(.plain).foregroundColor(accent).font(.system(size: 11))
+                }
+            }
         }.padding(.horizontal, 9).padding(.vertical, 5)
             .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 9))
             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(nameFocused ? accent.opacity(0.5) : .white.opacity(0.8), lineWidth: 0.8))
@@ -267,7 +276,11 @@ private struct TaskComposer: View {
         guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         draft.reconcileParent(tasks: store.tasks)
         let parent = draft.parentID
-        if draft.submit(to: store) { onCreated(parent) }
+        let sendToBobot = draft.agentHelpRequested
+        if draft.submit(to: store) {
+            if sendToBobot, let task = store.tasks.last, !bobot.assign(task) { draft.pendingBobotTaskID = task.id }
+            onCreated(parent)
+        }
     }
     private func consumeFocus() {
         guard draft.consumeFocus() else { return }
@@ -287,14 +300,14 @@ private struct AgentHelpToggle: View {
             BistButton { isOn.toggle() } label: {
                 HStack(spacing: compact ? 4 : 7) {
                     if !compact { Image(systemName: "sparkles").font(.system(size: 10)).foregroundColor(isOn ? accent : muted) }
-                    Text("Agent help").font(.system(size: compact ? 10 : 11)).fixedSize()
+                    Text("Ask Bobot").font(.system(size: compact ? 10 : 11)).fixedSize()
                     if !compact { Spacer() }
                     Capsule().fill(isOn ? accent : muted.opacity(0.25)).frame(width: compact ? 23 : 28, height: compact ? 13 : 16)
                         .overlay(Circle().fill(.white).frame(width: compact ? 9 : 12, height: compact ? 9 : 12).offset(x: isOn ? 5 : -5))
                 }.frame(height: compact ? 23 : 25).contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel("Agent help").accessibilityValue(isOn ? "On in draft; not connected." : "Off")
-                .help("Agent-help intent is saved with the task. No agent is connected.")
-            if isOn && !compact { Text("Not connected · save changes to keep this request").font(.system(size: 9)).foregroundColor(muted) }
+            }.buttonStyle(.plain).accessibilityLabel("Ask Bobot").accessibilityValue(isOn ? "Assign when saved" : "Off")
+                .help("Assigns the task name and details to Bobot when saved.")
+            if isOn && !compact { Text("Save to queue this task for Bobot. Follow it in Sessions.").font(.system(size: 9)).foregroundColor(muted) }
         }
     }
 }
@@ -623,6 +636,7 @@ struct TaskInspector: View {
 }
 
 private struct TaskInspectorContent: View {
+    @EnvironmentObject private var bobot: BobotStore
     let taskID: UUID
     @ObservedObject var store: AppStore
     let close: () -> Void
@@ -679,6 +693,7 @@ private struct TaskInspectorContent: View {
                                           selectedIDs: Binding(get: { task.labelIDs }, set: { _ = store.setTaskLabels(id: taskID, labelIDs: $0) }),
                                           newLabelName: $draft.newLabelName, creatingLabel: $draft.creatingLabel)
                             AgentHelpToggle(isOn: $draft.agentHelpRequested)
+                            BobotAssignment(task: task)
                             HStack(spacing: 16) {
                                 BistButton { movePresented = true } label: {
                                     Label("Move to…", systemImage: "arrow.turn.down.right")
@@ -831,7 +846,13 @@ private struct TaskInspectorContent: View {
     }
     private var hasTextChanges: Bool { draft.isDirty }
     private func save() {
-        if persistText() { close() }
+        let assign = draft.agentHelpRequested && (task?.agentHelpRequested != true || bobot.latest(for: taskID) == nil)
+        if persistText() {
+            if assign, let task {
+                if !bobot.assign(task) { localError = bobot.error; return }
+            }
+            close()
+        }
     }
     private func persistText() -> Bool {
         localError = nil

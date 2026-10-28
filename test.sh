@@ -45,3 +45,10 @@ build/tests/cold-launch-caret
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/InactiveTextEntryTests.swift -o build/tests/inactive-text-entry
 build/tests/inactive-text-entry
 build/tests/inactive-text-entry --note
+
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/BobotStoreTests.swift -o build/tests/bobot-store
+build/tests/bobot-store
+python3 Tests/test_bobot_bridge.py
+
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/BobotFlowTests.swift -o build/tests/bobot-flow
+build/tests/bobot-flow

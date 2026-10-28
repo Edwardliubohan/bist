@@ -76,6 +76,7 @@ final class TaskCreationDraft: ObservableObject {
     @Published var details = ""
     @Published var labelIDs: [UUID] = []
     @Published var agentHelpRequested = false
+    @Published var pendingBobotTaskID: UUID?
     @Published var detailsExpanded = false
     @Published var parentID: UUID?
     @Published var horizon: TaskHorizon = .shortTerm
