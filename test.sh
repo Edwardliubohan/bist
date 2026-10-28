@@ -49,5 +49,12 @@ build/tests/inactive-text-entry --note
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/T3SessionTests.swift -o build/tests/t3-sessions
 build/tests/t3-sessions
 
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/BobotStoreTests.swift -o build/tests/bobot-store
+build/tests/bobot-store
+python3 Tests/test_bobot_bridge.py
+
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/BobotFlowTests.swift -o build/tests/bobot-flow
+build/tests/bobot-flow
+
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/CompletionRetentionTests.swift -o build/tests/completion-retention
 build/tests/completion-retention

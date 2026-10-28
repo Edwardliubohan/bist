@@ -66,6 +66,7 @@ struct SessionBrowserTests {
             }.font(.system(size: 13)).padding(.horizontal, 20).frame(height: 48)
             SessionsPane(store: data, connection: source, browser: browser, active: browserActive, addLink: {})
             }.background(ivory).preferredColorScheme(.light).tint(accent).environmentObject(focus)
+                .environmentObject(BobotStore(directory: directory))
         }
         func capture(_ name: String, size: CGSize = CGSize(width: 360, height: 560), source: LocalSessionConnection? = nil, data: AppStore? = nil) throws {
             let host = GlassHostingView(rootView: root(source ?? connection, data: data ?? store))

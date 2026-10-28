@@ -493,11 +493,15 @@ struct BistView: View {
     @StateObject private var localSessions = LocalSessionConnection()
     @StateObject private var sessionBrowser = SessionBrowserState()
     @StateObject private var note: NoteStore
+    @StateObject private var bobot: BobotStore
+    @State private var questionJob: BobotJob?
+    @State private var shownQuestions = Set<String>()
     init(store: AppStore, state: PanelState, directory: URL) {
         self.store = store
         self.state = state
         self.directory = directory
         _sessionBrowser = StateObject(wrappedValue: SessionBrowserState(directory: directory, prepareForWrite: store.prepareForAuxiliaryWrite))
+        _bobot = StateObject(wrappedValue: BobotStore(directory: directory, prepare: store.prepareForAuxiliaryWrite))
         _note = StateObject(wrappedValue: NoteStore(directory: directory, prepareForWrite: store.prepareForAuxiliaryWrite))
     }
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
@@ -527,6 +531,28 @@ struct BistView: View {
         .onPreferenceChange(BistInteractionRegionsKey.self) { state.focusContext.interactionRegions = $0 }
         .environment(\.bistReduced, reduceMotion || state.reduced)
         .environmentObject(state.focusContext)
+        .environmentObject(bobot)
+        .sheet(item: $questionJob, onDismiss: { bobot.requestedQuestionID = nil }) { job in
+            BobotQuestionView(jobID: job.id, bobot: bobot) { questionJob = nil; bobot.requestedQuestionID = nil }
+                .environmentObject(state.focusContext)
+        }
+        .onChange(of: bobot.requestedQuestionID) { _, id in
+            if let job = bobot.jobs.first(where: { $0.id == id && $0.pendingQuestion != nil }) {
+                shownQuestions.insert(job.pendingQuestion!.id)
+                questionJob = job
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                bobot.refresh()
+                if questionJob == nil, let job = bobot.pending.first(where: { !shownQuestions.contains($0.pendingQuestion!.id) }) {
+                    shownQuestions.insert(job.pendingQuestion!.id)
+                    state.setExpanded(true)
+                    questionJob = job
+                }
+                do { try await Task.sleep(for: .seconds(2)) } catch { break }
+            }
+        }
         .onAppear { syncPreviewPreferences(); syncSurfaceAppearance() }
         .onChange(of: store.tasks) { _, tasks in
             checklistViewState.creation.reconcileParent(tasks: tasks)
