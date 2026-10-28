@@ -118,6 +118,30 @@ class BridgeTests(unittest.TestCase):
         self.bridge.tick()
         self.assertEqual(len(self.sent), 1)
 
+    def test_rotated_key_is_retained_for_short_dual_signing_window(self):
+        first = self.bridge.subscribe(self.params)
+        replacement = {**self.params, "delivery": {**self.params["delivery"], "secret": "whsec_" + base64.b64encode(b"y" * 32).decode()}}
+        self.assertEqual(first["id"], self.bridge.subscribe(replacement)["id"])
+        used = []
+        self.bridge.deliver = lambda url, keys, *args: (used.append(keys) or 200, b"{}")
+        self.bridge.tick()
+        self.assertEqual(used, [[replacement["delivery"]["secret"], self.params["delivery"]["secret"]]])
+
+    def test_unsubscribe_during_delivery_stops_following_events(self):
+        self.bridge.subscribe(self.params)
+        value = bridge_module.ledger(self.root)
+        value["jobs"].append({**self.job, "id": str(uuid.uuid4()), "taskID": str(uuid.uuid4())})
+        bridge_module.write_file(self.root / "bobot-jobs.json", value)
+        delivered = []
+        def unsubscribe_in_flight(*args):
+            delivered.append(args[3])
+            self.bridge.rpc({"method": "events/unsubscribe", "params": self.params})
+            return 200, b"{}"
+        self.bridge.deliver = unsubscribe_in_flight
+        self.bridge.tick()
+        self.assertEqual(len(delivered), 1)
+        self.assertEqual(self.bridge.subscriptions(), {})
+
     def test_failed_verification_keeps_secrets_out_of_result(self):
         self.bridge.deliver = lambda *args: (200, b'{"challenge":"wrong"}')
         with self.assertRaises(ValueError):

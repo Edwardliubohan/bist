@@ -116,11 +116,14 @@ def callback(url, secret, subscription_id, event_id, body):
     addresses = socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM)
     if not addresses or any(not ipaddress.ip_address(a[4][0]).is_global for a in addresses):
         raise ValueError("Callback address is not public")
-    key = base64.b64decode(secret.removeprefix("whsec_"), validate=True)
-    if not secret.startswith("whsec_") or not 24 <= len(key) <= 64:
-        raise ValueError("Invalid signing key")
     timestamp = str(int(time.time()))
-    signature = base64.b64encode(hmac.new(key, event_id.encode() + b"." + timestamp.encode() + b"." + body, hashlib.sha256).digest()).decode()
+    signatures = []
+    for signing_secret in secret if isinstance(secret, list) else [secret]:
+        key = base64.b64decode(signing_secret.removeprefix("whsec_"), validate=True)
+        if not signing_secret.startswith("whsec_") or not 24 <= len(key) <= 64:
+            raise ValueError("Invalid signing key")
+        signature = base64.b64encode(hmac.new(key, event_id.encode() + b"." + timestamp.encode() + b"." + body, hashlib.sha256).digest()).decode()
+        signatures.append("v1," + signature)
     connection = http.client.HTTPSConnection(parsed.hostname, timeout=10)
     try:
         raw = socket.create_connection((addresses[0][4][0], 443), timeout=10)
@@ -131,7 +134,7 @@ def callback(url, secret, subscription_id, event_id, body):
             raise
         connection.request("POST", urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, "")), body=body,
                            headers={"Content-Type": "application/json", "webhook-id": event_id,
-                                    "webhook-timestamp": timestamp, "webhook-signature": "v1," + signature,
+                                    "webhook-timestamp": timestamp, "webhook-signature": " ".join(signatures),
                                     "X-MCP-Subscription-Id": subscription_id})
         response = connection.getresponse()
         return response.status, response.read(262145)
@@ -249,7 +252,10 @@ class Bridge:
             if sid not in subscriptions and len(subscriptions) >= 10:
                 raise ValueError("Subscription capacity reached")
             receipts = subscriptions.get(sid, {}).get("receipts", {})
+            old = subscriptions.get(sid, {})
             subscriptions[sid] = {"url": url, "secret": secret, "expires": expires, "receipts": receipts}
+            if old.get("secret") and old["secret"] != secret:
+                subscriptions[sid].update(previousSecret=old["secret"], rotationUntil=time.time() + 60)
             write_file(self.root / ".bobot-subscriptions.json", subscriptions)
         return {"id": sid, "refreshBefore": datetime.fromtimestamp(expires, timezone.utc).isoformat(), "cursor": None, "truncated": False}
 
@@ -268,10 +274,17 @@ class Bridge:
                 receipt = subscription["receipts"].get(event_id, {})
                 if receipt.get("accepted") or receipt.get("stopped") or receipt.get("attempts", 0) >= 8 or receipt.get("next", 0) > time.time():
                     continue
+                with locked(self.root, "bobot-subscriptions"):
+                    latest = self.subscriptions().get(sid)
+                if not latest or latest["expires"] <= time.time() or latest["secret"] != subscription["secret"]:
+                    break
                 event = {"eventId": event_id, "name": EVENT, "timestamp": datetime.fromtimestamp(job["updatedAt"], timezone.utc).isoformat(),
                          "data": {"job_id": job["id"], "revision": job["revision"], "reason": "assigned" if job["state"] == "queued" else "answered"}, "cursor": None}
                 try:
-                    status, _ = self.deliver(subscription["url"], subscription["secret"], sid, event_id, json.dumps(event).encode())
+                    keys = [subscription["secret"]]
+                    if subscription.get("rotationUntil", 0) > time.time():
+                        keys.append(subscription["previousSecret"])
+                    status, _ = self.deliver(subscription["url"], keys if len(keys) > 1 else keys[0], sid, event_id, json.dumps(event).encode())
                 except Exception:
                     status = 0
                 attempts = receipt.get("attempts", 0) + 1
@@ -354,7 +367,7 @@ def main():
         except CallbackEndpointError:
             response = {"jsonrpc": "2.0", "id": request.get("id"), "error": {"code": -32015, "message": "Callback verification failed", "data": {"reason": "challenge_failed"}}}
         except Exception:
-            response = {"jsonrpc": "2.0", "id": request.get("id"), "error": {"code": -32602, "message": "Invalid request or local bridge state; no update applied."}}
+            response = {"jsonrpc": "2.0", "id": request.get("id"), "error": {"code": -32602, "message": "Request failed. Read the current task before retrying; check arguments and local bridge files."}}
         print(json.dumps(response, ensure_ascii=False), flush=True)
 
 
