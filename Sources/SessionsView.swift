@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 struct SessionsPane: View {
+    @EnvironmentObject private var bobot: BobotStore
+    @State private var selectedBobotID: String?
     @ObservedObject var store: AppStore
     @ObservedObject var connection: LocalSessionConnection
     @ObservedObject var browser: SessionBrowserState
@@ -18,13 +20,28 @@ struct SessionsPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             toolbar.padding(.bottom, 8)
-            if let session = selected { detail(session) }
+            if let job = bobot.jobs.first(where: { $0.id == selectedBobotID }) { BobotJobDetail(job: job, bobot: bobot) }
+            else if let session = selected { detail(session) }
             else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if browser.collection == .saved { savedLinks }
                         else {
                             if browser.collection == .recent {
+                                BobotSetup(bobot: bobot)
+                                if !bobot.jobs.isEmpty {
+                                    heading("Bobot", count: bobot.jobs.count)
+                                    ForEach(bobot.jobs.reversed()) { job in
+                                        BistButton { selectedBobotID = job.id } label: {
+                                            HStack(spacing: 7) {
+                                                Image(systemName: job.pendingQuestion != nil ? "questionmark.circle.fill" : job.state == "completed" ? "checkmark.circle" : "circle").foregroundColor(accent)
+                                                Text(job.title).lineLimit(1).frame(maxWidth: 120, alignment: .leading)
+                                                Text(job.status).foregroundColor(muted).lineLimit(1)
+                                                Spacer(minLength: 0)
+                                            }.font(.system(size: 11)).frame(height: 28).contentShape(Rectangle())
+                                        }.buttonStyle(.plain).accessibilityLabel("\(job.title), Bobot, \(job.status)")
+                                    }
+                                }
                                 heading("Running", count: running.count)
                                 ForEach(running) { row($0, working: true) }
                                 if running.isEmpty { hint("No turns running in bist") }
@@ -41,11 +58,12 @@ struct SessionsPane: View {
                     BistButton("Undo removed link") { if store.undo() { changedLink = false } }.buttonStyle(.plain).foregroundColor(accent).font(.system(size: 11))
                 }
             }
-            if let error = browser.archiveError ?? connection.error {
+            if let error = bobot.error ?? browser.archiveError ?? connection.error {
                 Text(error).font(.system(size: 11)).foregroundColor(.red).fixedSize(horizontal: false, vertical: true).padding(.vertical, 6)
             }
         }
         .padding(.horizontal, 20).padding(.bottom, 14).foregroundColor(ink)
+        .onChange(of: browser.collection) { selectedBobotID = nil }
         .task(id: active) {
             guard active else { return }
             while !Task.isCancelled {
@@ -57,8 +75,8 @@ struct SessionsPane: View {
 
     private var toolbar: some View {
         HStack(spacing: 8) {
-            if selected != nil {
-                BistButton { browser.selectedID = nil } label: {
+            if selected != nil || selectedBobotID != nil {
+                BistButton { browser.selectedID = nil; selectedBobotID = nil } label: {
                     Label("Inbox", systemImage: "chevron.left").font(.system(size: 11, weight: .medium)).frame(height: 28)
                 }.buttonStyle(.plain).foregroundColor(accent)
             } else {

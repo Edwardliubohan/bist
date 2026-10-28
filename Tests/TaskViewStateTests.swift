@@ -353,9 +353,10 @@ struct TaskViewStateTests {
         let finalDeadline = reload.tasks.compactMap(\.archiveDate).max()!
         expect(ActiveChecklist(tasks: reload.tasks, collapsedParents: [], now: finalDeadline).entries(for: .longerTerm).map(\.id) == [parentID], "restart projects expired descendants into archive")
         expect(ActiveChecklist(tasks: reload.tasks, collapsedParents: [], now: finalDeadline).children(of: parentID).isEmpty, "inspector excludes expired descendants")
+        let deadlineBeforeReopening = treeStore.tasks[1].archiveDate
         expect(treeStore.setUserCompletion(id: childID, completed: false), "reopen retained child")
         expect(treeStore.tasks[1].archiveDate == nil, "reopening cancels archive deadline")
-        expect(treeStore.undo() && treeStore.tasks[1].archiveDate == reload.tasks[1].archiveDate, "undo reopening restores original deadline")
+        expect(treeStore.undo() && treeStore.tasks[1].archiveDate == deadlineBeforeReopening, "undo reopening restores original deadline exactly")
 
         print("PASS: \(checks) task view-state checks")
     }
