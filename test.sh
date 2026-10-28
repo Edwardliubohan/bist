@@ -48,3 +48,6 @@ build/tests/inactive-text-entry --note
 
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/T3SessionTests.swift -o build/tests/t3-sessions
 build/tests/t3-sessions
+
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/CompletionRetentionTests.swift -o build/tests/completion-retention
+build/tests/completion-retention
