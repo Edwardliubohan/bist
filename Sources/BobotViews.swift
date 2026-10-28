@@ -10,6 +10,18 @@ struct BobotAssignment: View {
                 Text(job.status).font(.system(size: 11)).foregroundColor(accent)
                 Text("Follow this task in Sessions.").font(.system(size: 10)).foregroundColor(muted)
             } else {
+                if let job = bobot.latest(for: task.id), job.state == "completed" {
+                    Text("Agent done · ready for your review").font(.system(size: 11)).foregroundColor(accent)
+                    if let result = job.result {
+                        Text(result).font(.system(size: 10)).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let link = job.resultURL, let url = AppStore.safeURL(link) {
+                        Link("Open output", destination: url).font(.system(size: 10)).foregroundColor(accent)
+                    }
+                    Text("Check Me when you’ve reviewed and finished your part.")
+                        .font(.system(size: 10)).foregroundColor(muted)
+                }
                 BistButton("Ask Bobot to do this") { _ = bobot.assign(task) }
                     .buttonStyle(TactileStyle(compact: true)).font(.system(size: 11))
                 Text(bobot.connected ? "Sends the saved task name and details to Bobot." : "Queues this task. Connect Bobot in Sessions to start work.")

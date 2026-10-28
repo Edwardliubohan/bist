@@ -60,6 +60,22 @@ final class BobotStore: ObservableObject {
     }
     var pending: [BobotJob] { jobs.filter { $0.pendingQuestion != nil } }
     func latest(for id: UUID) -> BobotJob? { jobs.last { $0.taskID == id.uuidString.lowercased() } }
+    /// The latest explicit assignment supersedes older results, including a rerun.
+    /// This is a display projection only; personal completion and Undo stay in AppStore.
+    func agentCompletionStatus(for task: TaskItem) -> (done: Bool, value: String, hint: String) {
+        if error != nil {
+            return (false, "Unknown. Couldn’t read agent status.", "Check Bobot’s queue in Sessions.")
+        }
+        if let job = latest(for: task.id) {
+            return (job.state == "completed",
+                    job.state == "completed" ? "Done by agent. Ready for your review." : job.status,
+                    "Open task details for the assignment and output. Check Me after your own review and completion.")
+        }
+        return (task.agentCompletion != nil,
+                task.agentCompletion == nil ? "No completed agent result." : "Done. Result reviewed by you.",
+                "Open task details for result evidence.")
+    }
+
     private func read() throws -> BobotLedger {
         let path = directory.appendingPathComponent("bobot-jobs.json").path
         let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
@@ -88,6 +104,7 @@ final class BobotStore: ObservableObject {
         do {
             let value = try read()
             if jobs != value.jobs { jobs = value.jobs }
+            error = nil
             struct Connection: Decodable { var heartbeat: Double; var subscribed: Bool }
             let connection = try? JSONDecoder().decode(Connection.self, from: Data(contentsOf: directory.appendingPathComponent("bobot-connection.json")))
             connected = connection.map { $0.subscribed && Date().timeIntervalSince1970 - $0.heartbeat < 15 && $0.heartbeat <= Date().timeIntervalSince1970 + 5 } ?? false

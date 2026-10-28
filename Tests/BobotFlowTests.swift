@@ -102,10 +102,33 @@ struct BobotFlowTests {
         try expectTransparentCorners("sheet-dismissed")
         let execution = UUID().uuidString.lowercased()
         let resumed = try tool("resume_job", ["job_id": id, "claim_id": claim, "execution_id": execution, "answer_revision": ready["revision"]!])
+        bobot.refresh()
+        let checklist = GlassHostingView(rootView: ChecklistPane(store: store, openTask: { _ in }, focusRequest: 0,
+            reducedMotion: true, viewState: ChecklistViewState())
+            .foregroundColor(ink).frame(width: 360, height: 560).background(ivory)
+            .environmentObject(BistFocusContext()).environmentObject(bobot))
+        panel.contentView = checklist; pump()
+        try snapshot(checklist, "agent-working")
         let done = try tool("update_job", ["job_id": id, "claim_id": claim, "execution_id": execution, "revision": resumed["revision"]!, "state": "completed", "message": "Venue B has step-free access for every guest and costs $200 more. I recommend Venue B.", "result_url": "https://example.com/recommendation"])
         precondition(done["state"] as? String == "completed")
         let reopened = BobotStore(directory: directory)
         precondition(reopened.jobs[0].result?.contains("Venue B") == true && !store.tasks[0].completed)
+        precondition(reopened.agentCompletionStatus(for: store.tasks[0]).done,
+                     "Persisted MCP completion checks Agent before user review")
+        bobot.refresh(); pump()
+        try snapshot(checklist, "agent-done")
+        let mePoint = checklist.convert(NSPoint(x: 43, y: checklist.isFlipped ? 100 : checklist.bounds.height - 100), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = NSEvent.mouseEvent(with: type, location: mePoint, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            panel.sendEvent(event)
+        }
+        precondition(store.tasks[0].completed, "Native Me checkbox independently completes personal work")
+        pump()
+        try snapshot(checklist, "both-done")
+        precondition(AppStore(directory: directory).tasks[0].completed &&
+                     BobotStore(directory: directory).agentCompletionStatus(for: store.tasks[0]).done,
+                     "Both independent checkmarks survive reopening")
         if let sheet = panel.attachedSheet { panel.endSheet(sheet) }
         let focus = BistFocusContext()
         let browser = SessionBrowserState()

@@ -3,9 +3,9 @@
 bist keeps two independent completion states:
 
 - **I’m done** is your own checkbox. It does not change an agent result.
-- **Agent done** means you explicitly reviewed submitted output for the task’s linked session. It does not imply that bist connected to that provider or observed a running agent.
+- **Agent done** checks automatically when the task’s latest Bobot assignment reports completion. Review that output in task details or Sessions, then check your own checkbox when finished. A new assignment clears Agent until it completes. Tasks without a Bobot assignment can also show Agent done after you explicitly review submitted output for their linked saved session.
 
-A result file is a proposal, not proof of live integration. Arrival in the local inbox never marks a task complete.
+This page describes the separate manual result-file workflow. A result file is a proposal, not proof of live integration. Arrival in this local inbox never marks a task complete. For automatic Bobot assignment status, see [Bobot setup](BOBOT.md).
 
 ## Review an output
 
