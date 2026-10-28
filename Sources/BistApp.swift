@@ -80,6 +80,12 @@ final class PanelState: ObservableObject {
 
 final class FloatingPanel: NSPanel {
     private var synchronizingTextInput = false
+    override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
+        // A floating utility must be able to take keyboard focus while app
+        // activation is still pending. An activating borderless panel can
+        // receive the first text click without ever becoming key on cold launch.
+        super.init(contentRect: contentRect, styleMask: style.union(.nonactivatingPanel), backing: backingStoreType, defer: flag)
+    }
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
