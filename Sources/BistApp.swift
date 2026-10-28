@@ -80,6 +80,18 @@ final class PanelState: ObservableObject {
 
 final class FloatingPanel: NSPanel {
     private var synchronizingTextInput = false
+    override var contentView: NSView? {
+        didSet {
+            // AppKit inserts sheet dimming beside the content view. Clip their
+            // common native container so that overlay cannot square off the
+            // transparent corners outside the panel's own reveal mask.
+            if let container = contentView?.superview {
+                container.wantsLayer = true
+                container.layer?.cornerRadius = CornerLayout.cornerRadius
+                container.layer?.masksToBounds = true
+            }
+        }
+    }
     override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {
         // A floating utility must be able to take keyboard focus while app
         // activation is still pending. An activating borderless panel can
