@@ -102,6 +102,48 @@ struct SessionBrowserTests {
         browser.collection = .recent
         try capture("small", size: CGSize(width: 320, height: 400))
         browser.query = ""; browser.expandedWorkspaces = []
+        var external = sessions[0]
+        external.threadID = external.sessionID.uuidString.lowercased()
+        external.externalRunning = true
+        external.activity = "Checking session detection · 2 helpers"
+        external.childCount = 2
+        var question = sessions[1]
+        question.threadID = question.sessionID.uuidString.lowercased()
+        question.preview = "The inbox now groups work by session. Tests pass.\n\nWhich row density would you prefer?\n- Compact rows\n- Roomier rows"
+        question.activity = "Which row density would you prefer?"
+        let t3 = LocalSessionConnection(scan: LocalSessionScan(t3: T3SessionScan(sessions: [external, question, sessions[2]], connected: true)))
+        browser.query = ""; browser.selectedID = nil
+        try capture("threads", source: t3)
+        browser.selectedID = question.id
+        try capture("question", source: t3)
+        browser.selectedID = nil
+        let preview = SessionHoverAnchor()
+        preview.frame = CGRect(x: 0, y: 0, width: 200, height: 49)
+        let trackingHost = NSView(frame: CGRect(x: 0, y: 0, width: 360, height: 560))
+        trackingHost.addSubview(preview)
+        panel.contentView = trackingHost
+        panel.setFrame(CGRect(x: 700, y: 200, width: 360, height: 560), display: false)
+        panel.orderFrontRegardless()
+        preview.session = question
+        preview.show(verifyPointer: false)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.22))
+        guard let hover = NSApplication.shared.windows.first(where: { $0.title == "bist session preview" && $0.isVisible }),
+              let hoverHost = hover.contentView else { preconditionFailure("Native preview must reveal") }
+        expect(!hover.canBecomeKey && !hover.canBecomeMain, "Hover never takes keyboard focus")
+        expect(hover.frame.maxX < panel.frame.minX, "Actual native preview opens beside the panel on its left")
+        let bitmap = hoverHost.bitmapImageRepForCachingDisplay(in: hoverHost.bounds)!
+        hoverHost.cacheDisplay(in: hoverHost.bounds, to: bitmap)
+        try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: "build/tests/sessions-hover.png"))
+        preview.dismiss()
+        preview.show(verifyPointer: false)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.22))
+        expect(hover.isVisible, "A stale exit cannot dismiss a newer hover entrance")
+        preview.reduced = true
+        preview.show(verifyPointer: false)
+        expect(hover.contentView?.layer?.animation(forKey: "session-reveal") == nil, "Reduced motion has no translation animation")
+        preview.shutdown()
+        expect(!hover.isVisible && hover.parent == nil, "Removing the row closes and detaches the hover window")
+        panel.orderOut(nil)
         let empty = LocalSessionConnection(scan: LocalSessionScan(messages: [.codex: "No local session folder found", .claudeCode: "No local session folder found"]))
         try capture("empty", source: empty)
         try capture("loading", source: LocalSessionConnection())

@@ -96,6 +96,9 @@ private final class CaretProbe: NSTextView {
         panel.orderOut(nil); other.orderOut(nil)
         print("PASS: \(checks) native caret lifecycle checks (post-click refresh, 30 key-window cycles, selection/draft preservation)")
         NSApp.stop(nil)
+        // Wake nextEvent so app.run returns even when no user event follows.
+        NSApp.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+                                         windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!, atStart: false)
     }
 }
 
