@@ -19,7 +19,7 @@ struct CompletionRetentionTests {
         let state = ChecklistViewState()
         let host = NSHostingView(rootView: ChecklistPane(store: store, openTask: { _ in }, focusRequest: 0,
                                                         reducedMotion: true, viewState: state)
-            .environmentObject(BistFocusContext()).foregroundColor(ink).frame(width: 360, height: 500).background(ivory))
+            .environmentObject(BistFocusContext()).environmentObject(BobotStore(directory: directory)).foregroundColor(ink).frame(width: 360, height: 500).background(ivory))
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 360, height: 500),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

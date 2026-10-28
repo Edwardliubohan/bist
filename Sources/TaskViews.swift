@@ -60,7 +60,7 @@ struct ChecklistPane: View {
                         Text("Me").frame(width: 26).padding(.leading, 14).accessibilityLabel("My completion column")
                         Text("Task").padding(.leading, 12)
                         Spacer()
-                        Text("Agent").frame(width: 32).accessibilityLabel("Reviewed agent completion column")
+                        Text("Agent").frame(width: 32).accessibilityLabel("Agent completion column")
                     }.font(.system(size: 8, weight: .medium)).foregroundColor(muted).padding(.horizontal, 16).padding(.bottom, 5)
                     Rectangle().fill(ink.opacity(0.07)).frame(height: 0.5).padding(.horizontal, 17)
                     ScrollViewReader { scrollProxy in
@@ -592,9 +592,11 @@ private struct ChecklistTick: Shape {
 
 private struct AgentDoneMark: View {
     let task: TaskItem
+    @EnvironmentObject private var bobot: BobotStore
     var body: some View {
+        let status = bobot.agentCompletionStatus(for: task)
         Group {
-            if task.agentCompletion != nil {
+            if status.done {
                 Image(systemName: "checkmark.seal.fill").font(.system(size: 12)).foregroundColor(accent)
             } else {
                 Circle().strokeBorder(muted.opacity(0.3), lineWidth: 0.8).frame(width: 10, height: 10)
@@ -602,8 +604,8 @@ private struct AgentDoneMark: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Agent completion for \(task.title)")
-        .accessibilityValue(task.agentCompletion == nil ? "Unknown. No reviewed result." : "Done. Result reviewed by you.")
-        .accessibilityHint(task.agentCompletion == nil ? "No reviewed agent result. This is not a live status." : "Agent result reviewed. Open task details for evidence.")
+        .accessibilityValue(status.value)
+        .accessibilityHint(status.hint)
     }
 }
 
@@ -841,7 +843,7 @@ private struct TaskInspectorContent: View {
                         .help("Remove this local evidence record; your own completion stays unchanged.")
                 }.padding(9).frame(maxWidth: .infinity, alignment: .leading).background(accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
             } else {
-                Text("Agent completion is unknown until you review result evidence.").font(.system(size: 9)).foregroundColor(muted)
+                Text("Completed Bobot assignments check Agent automatically. Check Me when you’ve reviewed and finished your part.").font(.system(size: 9)).foregroundColor(muted)
             }
             BistButton(hasTextChanges ? "Save & review results" : "Review agent results") {
                 if persistText() { reviewAgentResults() }
