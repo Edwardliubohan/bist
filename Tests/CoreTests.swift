@@ -433,7 +433,8 @@ struct CoreTests {
         expect(history.setUserCompletion(id: openHistoryID, completed: true), "user completion records an actual timestamp")
         let firstCompletion = history.tasks[3].completedAt!
         expect(firstCompletion >= beforeCompletion && firstCompletion <= Date(), "completion timestamp is the user's action time")
-        expect(history.completedHistory.first?.id == openHistoryID, "newly completed task leads user history")
+        expect(!history.completedHistory.contains { $0.id == openHistoryID }, "newly completed task waits before archive")
+        expect(history.archivedTasks(at: firstCompletion.addingTimeInterval(86400)).first?.id == openHistoryID, "completion leads archive after 24 hours")
         let completionBytes = try Data(contentsOf: history.stateURL)
         expect(history.setUserCompletion(id: openHistoryID, completed: true) && history.tasks[3].completedAt == firstCompletion, "repeated completion preserves original timestamp")
         let repeatedCompletionBytes = try Data(contentsOf: history.stateURL)

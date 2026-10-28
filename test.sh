@@ -45,3 +45,6 @@ build/tests/cold-launch-caret
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/InactiveTextEntryTests.swift -o build/tests/inactive-text-entry
 build/tests/inactive-text-entry
 build/tests/inactive-text-entry --note
+
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/CompletionRetentionTests.swift -o build/tests/completion-retention
+build/tests/completion-retention

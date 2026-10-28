@@ -142,6 +142,16 @@ struct TaskItem: Codable, Identifiable, Equatable {
 }
 
 extension TaskItem {
+    /// A rolling day after the user's checkmark, independent of calendar/DST.
+    var archiveDate: Date? { completed ? completedAt?.addingTimeInterval(24 * 60 * 60) : nil }
+
+    func isArchived(at now: Date) -> Bool {
+        guard completed else { return false }
+        // Legacy completions have no trustworthy date; keep them in history.
+        guard let archiveDate else { return true }
+        return now >= archiveDate
+    }
+
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
@@ -290,8 +300,10 @@ final class AppStore: ObservableObject {
     @Published private(set) var canUndo = false
     let directory: URL
     var stateURL: URL { directory.appendingPathComponent("state.json") }
-    var completedHistory: [TaskItem] {
-        tasks.enumerated().filter { $0.element.completed }.sorted { left, right in
+    var completedHistory: [TaskItem] { archivedTasks(at: Date()) }
+
+    func archivedTasks(at now: Date) -> [TaskItem] {
+        tasks.enumerated().filter { $0.element.isArchived(at: now) }.sorted { left, right in
             switch (left.element.completedAt, right.element.completedAt) {
             case let (leftDate?, rightDate?) where leftDate != rightDate: return leftDate > rightDate
             case (_?, nil): return true
