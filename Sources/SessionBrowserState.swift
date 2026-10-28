@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import Darwin
 
-enum SessionCollection: String, CaseIterable { case recent, archived, saved }
+enum SessionCollection: String, CaseIterable { case recent, archived, saved, history }
 
 struct SessionWorkspace: Identifiable {
     let directory: String
@@ -69,7 +69,7 @@ final class SessionBrowserState: ObservableObject {
     }
     func inbox(_ sessions: [LocalAgentSession], running: Set<String>, archived: Bool = false) -> [LocalAgentSession] {
         sessions.filter {
-            !running.contains($0.id) && isRead($0) == archived &&
+            !running.contains($0.id) && (archived || $0.activeThread) && (archived ? isRead($0) && !$0.requiresT3Response : !isRead($0) || $0.requiresT3Response) &&
             (provider == nil || provider == $0.provider) && matches("\($0.title) \($0.activity) \($0.directory) \($0.sessionID) \($0.provider.displayName)")
         }.sorted { $0.modifiedAt > $1.modifiedAt }
     }

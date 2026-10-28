@@ -6,19 +6,32 @@ struct LocalAgentSession: Identifiable, Equatable {
     let provider: SessionProvider
     let sessionID: UUID
     let directory: String
-    let modifiedAt: Date
+    var modifiedAt: Date
     var configurationDirectory: String? = nil
     var name: String? = nil
     var activity: String = "Activity saved"
     var preview: String = ""
-    var id: String { "\(provider.rawValue):\(sessionID.uuidString)" }
+    var threadID: String? = nil
+    var t3BaseDirectory: String? = nil
+    var externalRunning = false
+    var activeThread = true
+    var needsInput = false
+    var requiresT3Response = false
+    var question: String? = nil
+    var childCount = 0
+    var id: String {
+        if let threadID { return "t3:\(threadID)" }
+        return "\(provider.rawValue):\(sessionID.uuidString)"
+    }
     var title: String { name ?? (directory == "/" ? "Root folder" : URL(fileURLWithPath: directory).lastPathComponent) }
+    var awaitingReply: Bool { needsInput || SessionDigest.question(preview) != nil }
     var shortID: String { "\(sessionID.uuidString.prefix(8).lowercased())…\(sessionID.uuidString.suffix(4).lowercased())" }
 }
 
 struct LocalSessionScan {
     var sessions: [LocalAgentSession] = []
     var messages: [SessionProvider: String] = [:]
+    var t3 = T3SessionScan()
 
     static func read(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                      environment: [String: String] = ProcessInfo.processInfo.environment) -> Self {
@@ -51,6 +64,7 @@ struct LocalSessionScan {
             }
             result.messages[provider] = failed ? "Some session folders could not be read" : "Local sessions connected"
         }
+        result.t3 = T3SessionScan.read(home: home, environment: environment)
         result.sessions.sort { $0.modifiedAt > $1.modifiedAt }
         return result
     }
@@ -65,9 +79,11 @@ struct LocalSessionScan {
             let metadata: [String: Any]
             if provider == .codex {
                 guard object["type"] as? String == "session_meta", let payload = object["payload"] as? [String: Any] else { continue }
+                if let source = payload["source"] as? [String: Any], source["subagent"] != nil { return nil }
+                if payload["source"] as? String == "subagent" { return nil }
                 metadata = payload
             } else {
-                guard object["isSidechain"] as? Bool != true else { continue }
+                guard object["isSidechain"] as? Bool != true else { return nil }
                 metadata = object
             }
             guard let raw = (metadata["sessionId"] ?? metadata["id"]) as? String, let id = UUID(uuidString: raw),
@@ -122,12 +138,22 @@ final class LocalSessionConnection: ObservableObject {
     @Published var replies: [String: SessionReply] = [:]
     @Published var managedSessions: [String: LocalAgentSession] = [:]
 
+    private var lastHistoryRefresh = Date.distantPast
+
     init(scan: LocalSessionScan = LocalSessionScan()) { self.scan = scan }
 
-    func refresh() async {
+    func refresh(forceHistory: Bool = false) async {
         guard !refreshing else { return }
         refreshing = true
-        let value = await Task.detached(priority: .utility) { LocalSessionScan.read() }.value
+        let includeHistory = forceHistory || Date().timeIntervalSince(lastHistoryRefresh) >= 20
+        let previous = scan
+        let value = await Task.detached(priority: .utility) {
+            if includeHistory { return LocalSessionScan.read() }
+            var value = previous
+            value.t3 = T3SessionScan.read()
+            return value
+        }.value
+        if includeHistory { lastHistoryRefresh = Date() }
         scan = value
         refreshing = false
     }
