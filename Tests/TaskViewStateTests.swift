@@ -313,26 +313,29 @@ struct TaskViewStateTests {
         let grandchildID = treeStore.tasks[2].id
         expect(treeStore.addTask(title: "Next root"), "create next stable root")
         let nextID = treeStore.tasks[3].id
-        func active(_ collapsed: Set<UUID> = []) -> [ChecklistEntry] {
-            ActiveChecklist(tasks: treeStore.tasks, collapsedParents: collapsed).entries(for: .shortTerm)
+        func active(_ collapsed: Set<UUID> = [], at now: Date = Date()) -> [ChecklistEntry] {
+            ActiveChecklist(tasks: treeStore.tasks, collapsedParents: collapsed, now: now).entries(for: .shortTerm)
         }
         expect(active().map(\.id) == [parentID, childID, grandchildID, nextID], "active preorder preserves tree ordering")
         expect(active([parentID]).map(\.id) == [parentID, nextID], "active project collapses descendants")
         expect(treeStore.setUserCompletion(id: parentID, completed: true), "complete collapsed parent")
-        expect(active([parentID]).map(\.id) == [childID, grandchildID, nextID], "completed parent disappears without hiding unfinished children")
-        expect(active().map(\.depth) == [0, 1, 0], "unfinished descendants promote visually without changing parents")
-        expect(treeStore.tasks[1].parentID == parentID && !treeStore.tasks[1].completed, "promotion never mutates child data")
-        expect(treeStore.completedHistory.map(\.id) == [parentID], "completed parent enters history immediately")
+        let parentDeadline = treeStore.tasks[0].archiveDate!
+        expect(active([parentID]).map(\.id) == [parentID, nextID], "recent completion stays in its collapsed position")
+        expect(active().map(\.id) == [parentID, childID, grandchildID, nextID], "recent completion retains full hierarchy")
+        expect(active().first?.task.completed == true, "retained row carries checked state for strikethrough")
+        expect(treeStore.completedHistory.isEmpty, "recent completion has not entered archive")
+        expect(active([parentID], at: parentDeadline.addingTimeInterval(-0.001)).first?.id == parentID, "visible just before rolling 24-hour deadline")
+        expect(active([parentID], at: parentDeadline).map(\.id) == [childID, grandchildID, nextID], "at deadline archived parent cannot hide unfinished children")
+        expect(active(at: parentDeadline).map(\.depth) == [0, 1, 0], "archived ancestors promote visually")
+        expect(treeStore.tasks[1].parentID == parentID && !treeStore.tasks[1].completed, "projection never mutates child data")
+        expect(treeStore.archivedTasks(at: parentDeadline).map(\.id) == [parentID], "completion enters archive at exact deadline")
         expect(treeStore.setUserCompletion(id: childID, completed: true), "complete nested child")
-        expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).children(of: parentID).map(\.id) == [grandchildID],
-               "inspector completion hides child but promotes unfinished grandchild")
-        expect(treeStore.tasks.first { $0.id == grandchildID }?.parentID == childID && !treeStore.tasks[2].completed,
-               "inspector projection preserves unfinished grandchild data")
-        expect(active([parentID, childID]).map(\.id) == [grandchildID, nextID], "multiple completed ancestors cannot hide unfinished descendants")
-        expect(treeStore.completedHistory.map(\.id) == [childID, parentID], "history uses actual completion order")
-        expect(treeStore.undo() && active().map(\.id) == [childID, grandchildID, nextID], "undo completion restores active hierarchy")
+        let childDeadline = treeStore.tasks[1].archiveDate!
         expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).children(of: parentID).map(\.id) == [childID],
-               "undo restores inspector direct-child hierarchy")
+               "inspector retains recent completed direct child")
+        expect(active([parentID, childID], at: childDeadline).map(\.id) == [grandchildID, nextID], "archived ancestors cannot hide unfinished descendants")
+        expect(treeStore.archivedTasks(at: childDeadline).map(\.id) == [childID, parentID], "archive uses actual completion order")
+        expect(treeStore.undo() && active().map(\.id) == [parentID, childID, grandchildID, nextID], "undo completion preserves retained hierarchy")
         expect(treeStore.setUserCompletion(id: parentID, completed: false), "reopen parent")
         expect(active().map(\.id) == [parentID, childID, grandchildID, nextID], "reopen restores original ordering")
         expect(treeStore.setTaskHorizon(id: childID, horizon: .longerTerm), "move tree from child")
@@ -340,10 +343,19 @@ struct TaskViewStateTests {
         let moved = ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).entries(for: .longerTerm)
         expect(moved.map(\.id) == [parentID, childID, grandchildID], "group move retains tree order")
         expect(treeStore.setUserCompletion(id: childID, completed: true) && treeStore.setUserCompletion(id: grandchildID, completed: true), "complete all descendants")
-        expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).entries(for: .longerTerm).first?.hasChildren == false,
-               "completed-only children do not expose an empty disclosure")
-        expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).children(of: parentID).isEmpty,
-               "inspector excludes completed-only descendants")
+        expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).entries(for: .longerTerm).first?.hasChildren == true,
+               "retained completed children keep disclosure")
+        expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).children(of: parentID).map(\.id) == [childID],
+               "inspector retains completed direct child for a day")
+
+        let reload = AppStore(directory: treeStore.directory)
+        expect(ActiveChecklist(tasks: reload.tasks, collapsedParents: []).entries(for: .longerTerm).map(\.id) == [parentID, childID, grandchildID], "restart preserves retained rows and hierarchy")
+        let finalDeadline = reload.tasks.compactMap(\.archiveDate).max()!
+        expect(ActiveChecklist(tasks: reload.tasks, collapsedParents: [], now: finalDeadline).entries(for: .longerTerm).map(\.id) == [parentID], "restart projects expired descendants into archive")
+        expect(ActiveChecklist(tasks: reload.tasks, collapsedParents: [], now: finalDeadline).children(of: parentID).isEmpty, "inspector excludes expired descendants")
+        expect(treeStore.setUserCompletion(id: childID, completed: false), "reopen retained child")
+        expect(treeStore.tasks[1].archiveDate == nil, "reopening cancels archive deadline")
+        expect(treeStore.undo() && treeStore.tasks[1].archiveDate == reload.tasks[1].archiveDate, "undo reopening restores original deadline")
 
         print("PASS: \(checks) task view-state checks")
     }
