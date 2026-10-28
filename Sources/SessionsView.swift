@@ -183,7 +183,7 @@ struct SessionsPane: View {
                             .buttonStyle(.plain).foregroundColor(accent).font(.system(size: 11)).frame(height: 26)
                             .accessibilityHint("Fills a draft to copy into T3 without sending")
                     }
-                    BistButton("Answer in T3") { connection.openThread(session) }.buttonStyle(.plain).foregroundColor(accent).font(.system(size: 12, weight: .medium)).frame(height: 28)
+                    BistButton("Answer in T3") { connection.openThread(session, answering: true) }.buttonStyle(.plain).foregroundColor(accent).font(.system(size: 12, weight: .medium)).frame(height: 28)
                 } else if SessionDigest.question(session.preview) != nil {
                     Text("Choose a reply to edit, or write your own.").font(.system(size: 10)).foregroundColor(muted)
                     ForEach(SessionDigest.suggestions(session.preview), id: \.self) { suggestion in

@@ -19,6 +19,7 @@ struct LocalAgentSession: Identifiable, Equatable {
     var requiresT3Response = false
     var question: String? = nil
     var childCount = 0
+    var responseThreadID: String? = nil
     var suggestedReplies: [String] = []
     var id: String {
         if let threadID { return "t3:\(threadID)" }
@@ -140,18 +141,25 @@ final class LocalSessionConnection: ObservableObject {
     @Published var managedSessions: [String: LocalAgentSession] = [:]
 
     private var lastHistoryRefresh = Date.distantPast
+    private let home: URL
+    private let environment: [String: String]
 
-    init(scan: LocalSessionScan = LocalSessionScan()) { self.scan = scan }
+    init(scan: LocalSessionScan = LocalSessionScan(),
+         home: URL = FileManager.default.homeDirectoryForCurrentUser,
+         environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.scan = scan; self.home = home; self.environment = environment
+    }
 
     func refresh(forceHistory: Bool = false) async {
         guard !refreshing else { return }
         refreshing = true
         let includeHistory = forceHistory || Date().timeIntervalSince(lastHistoryRefresh) >= 20
         let previous = scan
+        let home = self.home, environment = self.environment
         let value = await Task.detached(priority: .utility) {
-            if includeHistory { return LocalSessionScan.read() }
+            if includeHistory { return LocalSessionScan.read(home: home, environment: environment) }
             var value = previous
-            value.t3 = T3SessionScan.read()
+            value.t3 = T3SessionScan.read(home: home, environment: environment)
             return value
         }.value
         if includeHistory { lastHistoryRefresh = Date() }

@@ -34,7 +34,7 @@ struct SessionInboxTests {
         expect(try String(contentsOf: damaged.appendingPathComponent("sessions-read.json"), encoding: .utf8) == "broken", "Original damaged bytes retained")
         let gated = SessionBrowserState(directory: folder.appendingPathComponent("gated"), prepareForWrite: { false })
         expect(!gated.read(session), "Migration preparation gate respected")
-        let connection = LocalSessionConnection(scan: LocalSessionScan(sessions: [session, other]))
+        let connection = LocalSessionConnection(scan: LocalSessionScan(sessions: [session, other]), home: folder, environment: [:])
         let prompt = "--not-an-option\nLiteral 'quotes' $(touch SHOULD_NOT_EXIST) 🧡"
         for selected in [session, other] {
             let fake = folder.appendingPathComponent("fake-cli")

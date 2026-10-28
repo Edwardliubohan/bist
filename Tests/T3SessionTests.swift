@@ -31,7 +31,7 @@ struct T3SessionTests {
         INSERT INTO projection_projects VALUES ('p',\(quoted(home.path)),NULL);
         """)
         let first = UUID().uuidString, second = UUID().uuidString, finished = UUID().uuidString
-        let child = UUID().uuidString, settled = UUID().uuidString, archived = UUID().uuidString, waiting = UUID().uuidString
+        let child = "thread:delegated-task:test%3Aopaque/child", settled = UUID().uuidString, archived = UUID().uuidString, waiting = UUID().uuidString
         let timestamp = "2026-10-28T01:00:00.123Z"
         func thread(_ id: String, status: String, payload: String = "{}", archive: Bool = false) {
             sql("INSERT INTO orchestration_v2_projection_threads VALUES (\(quoted(id)),'Inbox work','p',\(quoted(timestamp)),'acpRegistry_codex',\(quoted(payload)),NULL,\(archive ? quoted(timestamp) : "NULL"));")
@@ -67,8 +67,17 @@ struct T3SessionTests {
         sql("UPDATE orchestration_v2_projection_runs SET status='running' WHERE thread_id=\(quoted(first));")
         sql("UPDATE orchestration_v2_projection_subagents SET status='pending';")
         expect(T3SessionScan.read(home: home, environment: [:], serverAlive: true).sessions.first { $0.threadID == first }?.childCount == 1, "Pending helpers count as active work")
+        sql("UPDATE orchestration_v2_projection_runtime_requests SET thread_id=\(quoted(child));")
+        sql("UPDATE orchestration_v2_projection_turn_items SET thread_id=\(quoted(child));")
+        let childRequest = T3SessionScan.read(home: home, environment: [:], serverAlive: true).sessions.first { $0.threadID == first }!
+        expect(childRequest.requiresT3Response && childRequest.responseThreadID == child, "Child question rolls up while retaining its exact response owner")
+        let answerURL = T3Command.threadURL(childRequest, origin: "http://127.0.0.1:3773", environmentID: "environment", answering: true)
+        expect(answerURL?.path.hasSuffix(child) == true, "Answer action opens the request-owning child, not the parent")
+        expect(T3Command.threadURL(childRequest, origin: "https://example.com", environmentID: "environment", answering: true) == nil, "Only the local T3 server can receive a thread handoff")
+        sql("UPDATE orchestration_v2_projection_runtime_requests SET thread_id=\(quoted(waiting));")
+        sql("UPDATE orchestration_v2_projection_turn_items SET thread_id=\(quoted(waiting));")
         let state = SessionBrowserState()
-        let connection = LocalSessionConnection(scan: LocalSessionScan(t3: result))
+        let connection = LocalSessionConnection(scan: LocalSessionScan(t3: result), home: home, environment: [:])
         let historyOnly = LocalAgentSession(provider: .codex, sessionID: UUID(), directory: home.path, modifiedAt: Date())
         connection.managedSessions[historyOnly.id] = historyOnly
         expect(!connection.inboxSessions.contains { $0.id == historyOnly.id }, "Managed provider history never pollutes the canonical T3 inbox")

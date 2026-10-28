@@ -46,7 +46,7 @@ struct T3SessionScan {
                  ORDER BY m.created_at DESC,m.message_id DESC LIMIT 1),
                (SELECT count(*) FROM orchestration_v2_projection_subagents s
                  WHERE s.thread_id=t.thread_id AND s.status IN ('pending','running','waiting')),
-               (SELECT json_object('type', i.type,
+               (SELECT json_object('ownerThreadID', q.thread_id, 'type', i.type,
                        'prompt', substr(json_extract(i.payload_json,'$.prompt'),1,4000),
                        'questions', json_extract(i.payload_json,'$.questions'))
                   FROM orchestration_v2_projection_runtime_requests q
@@ -63,6 +63,7 @@ struct T3SessionScan {
            AND json_extract(t.payload_json,'$.lineage.relationshipToParent') IS NOT 'subagent'
            AND NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_subagents s WHERE s.child_thread_id=t.thread_id)
          ORDER BY CASE WHEN r.status IN ('queued','preparing','starting','running','waiting') THEN 0 ELSE 1 END,
+                  CASE WHEN json_extract(t.payload_json,'$.settledOverride')='settled' THEN 1 ELSE 0 END,
                   t.updated_at DESC LIMIT 100
         """
         var statement: OpaquePointer?
@@ -99,6 +100,7 @@ struct T3SessionScan {
             else if !alive { session.activity = "T3 offline · last saved update" }
             if let request, let data = request.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                session.responseThreadID = object["ownerThreadID"] as? String
                 // Request state and visible prompts are separate T3 projection records.
                 // Structured answers and permission decisions remain in T3.
                 if let questions = object["questions"] as? [[String: Any]], !questions.isEmpty {
@@ -162,6 +164,19 @@ enum SessionDigest {
 
 /// Uses T3's supported thread CLI; the app never writes its database.
 enum T3Command {
+    static func threadURL(_ session: LocalAgentSession, origin: String, environmentID: String, answering: Bool = false) -> URL? {
+        guard let threadID = answering ? session.responseThreadID ?? session.threadID : session.threadID,
+              var components = URLComponents(string: origin), components.scheme == "http",
+              ["127.0.0.1", "localhost", "::1"].contains(components.host ?? ""),
+              components.user == nil, components.password == nil else { return nil }
+        let environment = environmentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let segment = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/%?#"))
+        guard !environment.isEmpty, let environmentPath = environment.addingPercentEncoding(withAllowedCharacters: segment),
+              let threadPath = threadID.addingPercentEncoding(withAllowedCharacters: segment) else { return nil }
+        components.percentEncodedPath = "/\(environmentPath)/\(threadPath)"
+        components.query = nil; components.fragment = nil
+        return components.url
+    }
     static var application: Bundle? {
         let path = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.t3tools.t3code")
             ?? URL(fileURLWithPath: "/Applications/T3 Code (Beta).app")
@@ -174,22 +189,21 @@ enum T3Command {
 }
 
 extension LocalSessionConnection {
-    func openThread(_ session: LocalAgentSession) {
-        guard let base = session.t3BaseDirectory, let threadID = session.threadID,
+    func openThread(_ session: LocalAgentSession, answering: Bool = false) {
+        guard let base = session.t3BaseDirectory,
               let data = try? Data(contentsOf: URL(fileURLWithPath: base).appendingPathComponent("userdata/server-runtime.json")),
               let runtime = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let origin = runtime["origin"] as? String, var components = URLComponents(string: origin),
-              components.scheme == "http", ["127.0.0.1", "localhost", "::1"].contains(components.host ?? ""),
-              let environment = try? String(contentsOf: URL(fileURLWithPath: base).appendingPathComponent("userdata/environment-id"), encoding: .utf8) else {
+              let origin = runtime["origin"] as? String,
+              let environment = try? String(contentsOf: URL(fileURLWithPath: base).appendingPathComponent("userdata/environment-id"), encoding: .utf8),
+              let url = T3Command.threadURL(session, origin: origin, environmentID: environment, answering: answering) else {
             error = "Open T3 Code to answer this session. Its local server is unavailable."; return
         }
-        components.path = "/\(environment.trimmingCharacters(in: .whitespacesAndNewlines))/\(threadID)"
-        guard let url = components.url, NSWorkspace.shared.open(url) else { error = "Couldn’t open this T3 thread."; return }
+        guard NSWorkspace.shared.open(url) else { error = "Couldn’t open this T3 thread."; return }
         error = nil
     }
     func copyReplyAndOpen(_ text: String, session: LocalAgentSession) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        openThread(session)
+        openThread(session, answering: true)
     }
 }
