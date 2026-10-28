@@ -28,17 +28,23 @@ struct ChecklistPane: View {
         get { viewState.showLabels }
         nonmutating set { viewState.showLabels = newValue }
     }
-    private func entries(for horizon: TaskHorizon) -> [ChecklistEntry] {
-        ActiveChecklist(tasks: store.tasks, collapsedParents: collapsedParents).entries(for: horizon)
+    private func entries(for horizon: TaskHorizon, at now: Date) -> [ChecklistEntry] {
+        ActiveChecklist(tasks: store.tasks, collapsedParents: collapsedParents, now: now).entries(for: horizon)
     }
 
     var body: some View {
+        TaskRetentionClock(tasks: store.tasks) { now in
+            content(at: now)
+        }
+    }
+
+    private func content(at now: Date) -> some View {
         ZStack {
             if showLabels {
                 TaskLabelManager(store: store) { showLabels = false }
                     .transition(navigationTransition)
             } else if viewState.showHistory {
-                TaskHistoryPane(store: store, openTask: openTask) { viewState.showHistory = false }
+                TaskHistoryPane(store: store, now: now, openTask: openTask) { viewState.showHistory = false }
                     .transition(navigationTransition)
             } else {
                 VStack(spacing: 0) {
@@ -68,10 +74,10 @@ struct ChecklistPane: View {
                                         .buttonStyle(.plain).font(.system(size: 11, weight: .medium)).foregroundColor(accent)
                                 }.padding(.horizontal, 9).padding(.vertical, 22)
                             } else {
-                                section(.shortTerm, scrollProxy: scrollProxy)
-                                section(.longerTerm, scrollProxy: scrollProxy)
+                                section(.shortTerm, at: now, scrollProxy: scrollProxy)
+                                section(.longerTerm, at: now, scrollProxy: scrollProxy)
                                 if store.tasks.allSatisfy(\.completed) {
-                                    Text("All checked. Your completed tasks are in history.")
+                                    Text("All checked. Completed tasks move to Past tasks after 24 hours.")
                                         .font(.system(size: 11)).foregroundColor(muted).padding(12)
                                 }
                             }
@@ -100,8 +106,8 @@ struct ChecklistPane: View {
         .onChange(of: focusRequest) { consumeFocusRequest() }
     }
 
-    private func section(_ horizon: TaskHorizon, scrollProxy: ScrollViewProxy) -> some View {
-        let rows = entries(for: horizon)
+    private func section(_ horizon: TaskHorizon, at now: Date, scrollProxy: ScrollViewProxy) -> some View {
+        let rows = entries(for: horizon, at: now)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 5) {
                 Text(horizon.title).font(.system(size: 13, weight: .semibold))
@@ -467,15 +473,17 @@ private struct CompactSelection<Value: Hashable>: View {
 
 private struct TaskHistoryPane: View {
     @ObservedObject var store: AppStore
+    let now: Date
+    private var archived: [TaskItem] { store.archivedTasks(at: now) }
     let openTask: (UUID) -> Void
     let close: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             PanelNavigationButton(title: "Back to tasks", symbol: "chevron.left", action: close)
-            HStack { Text("Past tasks").font(.system(size: 17, weight: .medium)); Spacer(); Text("\(store.completedHistory.count)").font(.system(size: 10)).foregroundColor(muted) }
+            HStack { Text("Past tasks").font(.system(size: 17, weight: .medium)); Spacer(); Text("\(archived.count)").font(.system(size: 10)).foregroundColor(muted) }
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(store.completedHistory) { task in
+                    ForEach(archived) { task in
                         HStack(spacing: 8) {
                             BistButton { openTask(task.id) } label: {
                                 HStack(spacing: 8) {
@@ -500,7 +508,7 @@ private struct TaskHistoryPane: View {
                                 Button("Delete task", role: .destructive) { _ = store.deleteTask(id: task.id) }
                             }
                     }
-                    if store.completedHistory.isEmpty { Text("Completed tasks will appear here.").font(.system(size: 11)).foregroundColor(muted).padding(.top, 22) }
+                    if archived.isEmpty { Text("Completed tasks appear here after 24 hours.").font(.system(size: 11)).foregroundColor(muted).padding(.top, 22) }
                 }
             }
             TaskUndoLine(store: store)
@@ -786,7 +794,14 @@ private struct TaskInspectorContent: View {
     }
 
     private var subtasksSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        TaskRetentionClock(tasks: store.tasks) { now in
+            subtasksSection(at: now)
+        }
+    }
+
+    private func subtasksSection(at now: Date) -> some View {
+        let subtasks = ActiveChecklist(tasks: store.tasks, collapsedParents: [], now: now).children(of: taskID)
+        return VStack(alignment: .leading, spacing: 6) {
             caption("Subtasks")
             ForEach(subtasks) { subtask in
                 HStack(spacing: 6) {
@@ -925,4 +940,25 @@ private struct TaskLabelManager: View {
         if success { reset() }
     }
     private func reset() { editingID = nil; name = ""; color = .amber }
+}
+
+/// Projection only: archiving never rewrites data or adds an Undo action.
+private struct TaskRetentionClock<Content: View>: View {
+    let tasks: [TaskItem]
+    @ViewBuilder let content: (Date) -> Content
+    @State private var now = Date()
+
+    var body: some View {
+        content(now)
+            .task(id: tasks.compactMap(\.archiveDate)) {
+                while !Task.isCancelled {
+                    now = Date()
+                    guard let next = tasks.compactMap(\.archiveDate).filter({ $0 > now }).min() else { return }
+                    do { try await Task.sleep(for: .seconds(max(0, next.timeIntervalSinceNow))) }
+                    catch { return }
+                }
+            }
+            .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in now = Date() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in now = Date() }
+    }
 }

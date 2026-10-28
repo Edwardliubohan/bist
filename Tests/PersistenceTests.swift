@@ -22,7 +22,11 @@ struct PersistenceTests {
                     delegate.savePosition()
                 } else {
                     precondition(store.tasks.count == 2 && store.tasks[0].notes == "Saved notes")
-                    precondition(store.completedHistory.count == 1 && store.completedHistory[0].completedAt != nil)
+                    let completed = store.tasks[1]
+                    precondition(completed.completed && completed.completedAt != nil)
+                    precondition(store.completedHistory.isEmpty)
+                    precondition(ActiveChecklist(tasks: store.tasks, collapsedParents: []).entries(for: .shortTerm).contains { $0.id == completed.id })
+                    precondition(store.archivedTasks(at: completed.archiveDate!).map(\.id) == [completed.id])
                     precondition(store.labels.contains { $0.name == "Persistent tag" })
                     precondition(store.sessions.count == 1)
                     precondition(FileManager.default.fileExists(atPath: delegate.positionURL.path))

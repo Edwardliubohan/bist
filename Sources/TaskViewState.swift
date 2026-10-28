@@ -29,13 +29,14 @@ struct ChecklistEntry: Identifiable {
 struct ActiveChecklist {
     let tasks: [TaskItem]
     let collapsedParents: Set<UUID>
+    var now: Date = Date()
 
     func children(of parentID: UUID) -> [TaskItem] {
         let children = Dictionary(grouping: tasks.filter { $0.parentID != nil }, by: { $0.parentID! })
         var visited: Set<UUID> = [parentID]
         func visible(_ task: TaskItem) -> [TaskItem] {
             guard visited.insert(task.id).inserted else { return [] }
-            return task.completed ? (children[task.id] ?? []).flatMap(visible) : [task]
+            return task.isArchived(at: now) ? (children[task.id] ?? []).flatMap(visible) : [task]
         }
         return (children[parentID] ?? []).flatMap(visible)
     }
@@ -48,7 +49,7 @@ struct ActiveChecklist {
         func append(_ task: TaskItem, depth: Int) {
             guard visited.insert(task.id).inserted else { return }
             let descendants = children[task.id] ?? []
-            if task.completed {
+            if task.isArchived(at: now) {
                 descendants.forEach { append($0, depth: depth) }
             } else {
                 result.append(ChecklistEntry(task: task, depth: depth,
@@ -61,7 +62,7 @@ struct ActiveChecklist {
         func hasActiveDescendants(_ parentID: UUID, seen: Set<UUID>) -> Bool {
             guard !seen.contains(parentID) else { return false }
             var next = seen; next.insert(parentID)
-            return (children[parentID] ?? []).contains { !$0.completed || hasActiveDescendants($0.id, seen: next) }
+            return (children[parentID] ?? []).contains { !$0.isArchived(at: now) || hasActiveDescendants($0.id, seen: next) }
         }
         tasks.filter { ($0.parentID == nil || !ids.contains($0.parentID!)) && $0.horizon == horizon }
             .forEach { append($0, depth: 0) }
