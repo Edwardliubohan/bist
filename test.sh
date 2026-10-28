@@ -41,3 +41,7 @@ build/tests/session-inbox
 
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/ColdLaunchCaretTests.swift -o build/tests/cold-launch-caret
 build/tests/cold-launch-caret
+
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/InactiveTextEntryTests.swift -o build/tests/inactive-text-entry
+build/tests/inactive-text-entry
+build/tests/inactive-text-entry --note

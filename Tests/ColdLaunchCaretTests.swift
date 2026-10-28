@@ -45,13 +45,15 @@ private final class KeySink: NSView { override var acceptsFirstResponder: Bool {
         content.addSubview(editor); content.addSubview(sink)
         panel.contentView = content; panel.initialFirstResponder = sink
         _ = panel.makeFirstResponder(sink)
-        NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil)
+        // Do not activate the application first. On cold launch its activation
+        // can still be pending when the panel receives its first text click.
+        panel.makeKeyAndOrderFront(nil)
         _ = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { _ in
             MainActor.assumeIsolated { self.verifyFirstClick() }
         }
     }
     func verifyFirstClick() {
-        precondition(panel.isKeyWindow && NSApp.keyWindow === panel, "Fixture requires a real key window")
+        precondition(panel.isKeyWindow && NSApp.keyWindow === panel, "Cold panel must accept keyboard focus without prior application activation")
         precondition(editor.firstContext == nil && panel.firstResponder === sink, "No text editor may be focused before the first click")
         let event = NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 30, y: 30), modifierFlags: [],
                                       timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
@@ -70,8 +72,10 @@ private final class KeySink: NSView { override var acceptsFirstResponder: Bool {
         _ = panel.makeFirstResponder(sink)
         NSApp.updateWindows()
         panel.orderOut(nil)
-        print("PASS: native cold-start first click registers a lazy input context before caret drawing, with no prior text focus or warm cycle")
+        print("PASS: native cold-start panel takes key focus without prior app activation, then registers first-click input context before caret drawing")
         NSApp.stop(nil)
+        NSApp.postEvent(NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0,
+                                         windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)!, atStart: false)
     }
 }
 @main struct ColdLaunchCaretTests {
