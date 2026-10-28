@@ -42,7 +42,11 @@ struct BobotFlowTests {
         let panel = FloatingPanel(contentRect: CGRect(x: 50, y: 50, width: 360, height: 560), styleMask: [.borderless], backing: .buffered, defer: false)
         let host = GlassHostingView(rootView: BistView(store: store, state: state, directory: directory))
         host.sizingOptions = []
-        panel.contentView = host
+        panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
+        let surface = PanelTransitionSurface(host: host)
+        panel.contentView = surface
+        surface.frame = CGRect(origin: .zero, size: panel.frame.size)
+        surface.settle(rect: surface.bounds, contentSize: surface.bounds.size)
         state.resize = { expanded, _ in state.reveal = expanded ? 1 : 0 }
         panel.orderFrontRegardless()
         func pump(_ seconds: Double = 0.2) { RunLoop.main.run(until: Date(timeIntervalSinceNow: seconds)) }
@@ -55,6 +59,26 @@ struct BobotFlowTests {
             view.cacheDisplay(in: view.bounds, to: bitmap)
             try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: "build/tests/bobot-\(name).png"))
         }
+        func expectTransparentCorners(_ name: String) throws {
+            // Capture the native frame, including AppKit's sibling sheet dimmer,
+            // rather than just the already-masked SwiftUI content surface.
+            let frame = panel.contentView!.superview!
+            let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds)!
+            frame.cacheDisplay(in: frame.bounds, to: bitmap)
+            for x in [1, bitmap.pixelsWide - 2] {
+                for y in [1, bitmap.pixelsHigh - 2] {
+                    precondition(bitmap.colorAt(x: x, y: y)!.alphaComponent < 0.01,
+                                 "Native panel corners stay transparent \(name)")
+                }
+            }
+            precondition(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)!.alphaComponent > 0.9,
+                         "Panel interior remains visible")
+            try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: "build/tests/bobot-\(name).png"))
+        }
+        try expectTransparentCorners("sheet-parent")
+        surface.updateAppearance(transparency: 0.75, opaque: false)
+        try expectTransparentCorners("sheet-glass")
+        surface.updateAppearance(transparency: 0, opaque: true)
         try snapshot(panel.attachedSheet!.contentView!, "question")
         let sheet = panel.attachedSheet!
         func editors(_ view: NSView) -> [NSTextView] {
@@ -74,6 +98,8 @@ struct BobotFlowTests {
         pump()
         let ready = try tool("read_job", ["job_id": id])
         precondition(ready["state"] as? String == "ready", "MCP sees persisted native answer")
+        precondition(panel.attachedSheet == nil, "Submitting the answer dismisses the sheet")
+        try expectTransparentCorners("sheet-dismissed")
         let execution = UUID().uuidString.lowercased()
         let resumed = try tool("resume_job", ["job_id": id, "claim_id": claim, "execution_id": execution, "answer_revision": ready["revision"]!])
         let done = try tool("update_job", ["job_id": id, "claim_id": claim, "execution_id": execution, "revision": resumed["revision"]!, "state": "completed", "message": "Venue B has step-free access for every guest and costs $200 more. I recommend Venue B.", "result_url": "https://example.com/recommendation"])
