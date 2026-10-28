@@ -98,7 +98,7 @@ extension LocalSessionConnection {
 
     var inboxSessions: [LocalAgentSession] {
         var values = Dictionary(uniqueKeysWithValues: (scan.t3.connected || scan.t3.error != nil ? scan.t3.sessions : scan.sessions).map { ($0.id, $0) })
-        for (id, session) in managedSessions where values[id] == nil && (session.threadID == nil || running.contains(id)) { values[id] = session }
+        for (id, session) in managedSessions where values[id] == nil && (session.threadID != nil ? running.contains(id) : !scan.t3.connected && scan.t3.error == nil) { values[id] = session }
         return values.values.map { session in
             var value = session
             if running.contains(session.id) {

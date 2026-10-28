@@ -19,6 +19,7 @@ struct LocalAgentSession: Identifiable, Equatable {
     var requiresT3Response = false
     var question: String? = nil
     var childCount = 0
+    var suggestedReplies: [String] = []
     var id: String {
         if let threadID { return "t3:\(threadID)" }
         return "\(provider.rawValue):\(sessionID.uuidString)"

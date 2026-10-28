@@ -26,7 +26,8 @@ struct T3SessionTests {
         CREATE TABLE orchestration_v2_projection_runs(run_id TEXT,thread_id TEXT,ordinal INTEGER,status TEXT,completed_at TEXT);
         CREATE TABLE orchestration_v2_projection_messages(message_id TEXT,thread_id TEXT,role TEXT,payload_json TEXT,created_at TEXT,updated_at TEXT);
         CREATE TABLE orchestration_v2_projection_subagents(thread_id TEXT,child_thread_id TEXT,status TEXT);
-        CREATE TABLE orchestration_v2_projection_runtime_requests(thread_id TEXT,status TEXT,created_at TEXT,payload_json TEXT);
+        CREATE TABLE orchestration_v2_projection_runtime_requests(runtime_request_id TEXT,thread_id TEXT,status TEXT,created_at TEXT,payload_json TEXT);
+        CREATE TABLE orchestration_v2_projection_turn_items(thread_id TEXT,type TEXT,ordinal INTEGER,payload_json TEXT);
         INSERT INTO projection_projects VALUES ('p',\(quoted(home.path)),NULL);
         """)
         let first = UUID().uuidString, second = UUID().uuidString, finished = UUID().uuidString
@@ -47,7 +48,8 @@ struct T3SessionTests {
         thread(archived, status: "running", archive: true)
         thread(waiting, status: "waiting")
         sql("INSERT INTO orchestration_v2_projection_subagents VALUES (\(quoted(first)),\(quoted(child)),'running');")
-        sql("INSERT INTO orchestration_v2_projection_runtime_requests VALUES (\(quoted(waiting)),'pending',\(quoted(timestamp)),'{\"question\":\"Which option?\"}');")
+        sql("INSERT INTO orchestration_v2_projection_runtime_requests VALUES ('request-1',\(quoted(waiting)),'pending',\(quoted(timestamp)),'{\"kind\":\"user_input\",\"responseCapability\":{\"type\":\"live\"}}');")
+        sql("INSERT INTO orchestration_v2_projection_turn_items VALUES (\(quoted(waiting)),'user_input_request',1,'{\"requestId\":\"request-1\",\"questions\":[{\"id\":\"q1\",\"header\":\"Layout\",\"question\":\"Which option?\",\"options\":[{\"label\":\"Compact rows\",\"description\":\"Fits more sessions\"}]}]}');")
         let result = T3SessionScan.read(home: home, environment: [:], serverAlive: true)
         var checks = 0
         func expect(_ value: Bool, _ message: String) { precondition(value, message); checks += 1 }
@@ -58,13 +60,18 @@ struct T3SessionTests {
         expect(result.sessions.first { $0.threadID == finished }?.externalRunning == false, "Completed turns are not running")
         let question = result.sessions.first { $0.threadID == waiting }!
         expect(question.needsInput && question.requiresT3Response && !question.externalRunning, "Pending question is actionable, not falsely working")
-        expect(question.question == "Which option?", "Question source text retained")
+        expect(question.question == "Which option?" && question.suggestedReplies == ["Compact rows"], "Question text and choices come from the corresponding turn item")
         sql("UPDATE orchestration_v2_projection_runs SET status='completed' WHERE thread_id=\(quoted(first));")
         let childOnly = T3SessionScan.read(home: home, environment: [:], serverAlive: true)
         expect(childOnly.sessions.first { $0.threadID == first }?.externalRunning == true, "Live child work keeps the root session running after its own turn completes")
         sql("UPDATE orchestration_v2_projection_runs SET status='running' WHERE thread_id=\(quoted(first));")
+        sql("UPDATE orchestration_v2_projection_subagents SET status='pending';")
+        expect(T3SessionScan.read(home: home, environment: [:], serverAlive: true).sessions.first { $0.threadID == first }?.childCount == 1, "Pending helpers count as active work")
         let state = SessionBrowserState()
         let connection = LocalSessionConnection(scan: LocalSessionScan(t3: result))
+        let historyOnly = LocalAgentSession(provider: .codex, sessionID: UUID(), directory: home.path, modifiedAt: Date())
+        connection.managedSessions[historyOnly.id] = historyOnly
+        expect(!connection.inboxSessions.contains { $0.id == historyOnly.id }, "Managed provider history never pollutes the canonical T3 inbox")
         let items = state.inbox(connection.inboxSessions, running: connection.busyIDs)
         expect(!items.contains { $0.threadID == settled }, "Settled threads excluded from active inbox")
         expect(items.contains { $0.id == question.id }, "Pending answer appears in inbox")

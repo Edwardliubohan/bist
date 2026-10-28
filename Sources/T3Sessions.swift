@@ -45,11 +45,16 @@ struct T3SessionScan {
                  WHERE m.thread_id=t.thread_id AND m.role='assistant'
                  ORDER BY m.created_at DESC,m.message_id DESC LIMIT 1),
                (SELECT count(*) FROM orchestration_v2_projection_subagents s
-                 WHERE s.thread_id=t.thread_id AND s.status IN ('queued','running','waiting','starting')),
-               (SELECT substr(q.payload_json,1,16000) FROM orchestration_v2_projection_runtime_requests q
+                 WHERE s.thread_id=t.thread_id AND s.status IN ('pending','running','waiting')),
+               (SELECT json_object('type', i.type,
+                       'prompt', substr(json_extract(i.payload_json,'$.prompt'),1,4000),
+                       'questions', json_extract(i.payload_json,'$.questions'))
+                  FROM orchestration_v2_projection_runtime_requests q
+                  LEFT JOIN orchestration_v2_projection_turn_items i ON i.thread_id=q.thread_id
+                       AND json_extract(i.payload_json,'$.requestId')=q.runtime_request_id
                  WHERE (q.thread_id=t.thread_id OR q.thread_id IN (
                     SELECT s.child_thread_id FROM orchestration_v2_projection_subagents s WHERE s.thread_id=t.thread_id)) AND q.status='pending'
-                 ORDER BY q.created_at DESC LIMIT 1)
+                 ORDER BY q.created_at DESC,i.ordinal DESC LIMIT 1)
           FROM orchestration_v2_projection_threads t
           JOIN projection_projects p ON p.project_id=t.project_id
           LEFT JOIN orchestration_v2_projection_runs r ON r.run_id=(
@@ -94,9 +99,16 @@ struct T3SessionScan {
             else if !alive { session.activity = "T3 offline · last saved update" }
             if let request, let data = request.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                // Display the prompt only; permission and structured responses stay in T3.
-                let payload = object["request"] as? [String: Any] ?? object
-                session.question = (payload["question"] ?? payload["message"] ?? payload["prompt"]) as? String
+                // Request state and visible prompts are separate T3 projection records.
+                // Structured answers and permission decisions remain in T3.
+                if let questions = object["questions"] as? [[String: Any]], !questions.isEmpty {
+                    session.question = questions.prefix(5).compactMap { ($0["question"] as? String).map { String($0.prefix(800)) } }.joined(separator: "\n\n")
+                    if questions.count == 1 {
+                        session.suggestedReplies = Array((questions[0]["options"] as? [[String: Any]] ?? []).compactMap { $0["label"] as? String }.filter { $0.count <= 160 }.prefix(3))
+                    }
+                } else {
+                    session.question = object["prompt"] as? String ?? "Open this request in T3 to review its details."
+                }
             }
             result.sessions.append(session)
         }

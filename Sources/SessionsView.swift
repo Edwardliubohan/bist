@@ -17,7 +17,7 @@ struct SessionsPane: View {
     private var selected: LocalAgentSession? { sessions.first { $0.id == browser.selectedID } }
     private var running: [LocalAgentSession] { sessions.filter { connection.busyIDs.contains($0.id) } }
     private var updates: [LocalAgentSession] { browser.inbox(sessions, running: connection.busyIDs, archived: browser.collection == .archived) }
-    private var questions: [LocalAgentSession] { updates.filter { $0.needsInput || SessionDigest.question($0.preview) != nil } }
+    private var questions: [LocalAgentSession] { updates.filter { $0.awaitingReply } }
     private var notices: [LocalAgentSession] { updates.filter { session in !questions.contains { $0.id == session.id } } }
     private var initialLoad: Bool { connection.scan.messages.isEmpty && sessions.isEmpty }
 
@@ -107,7 +107,7 @@ struct SessionsPane: View {
             if !working { browser.read(session) }
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: working ? "circle.fill" : session.needsInput || SessionDigest.question(session.preview) != nil ? "questionmark.circle" : "circle.fill")
+                Image(systemName: working ? "circle.fill" : session.awaitingReply ? "questionmark.circle" : "circle.fill")
                     .font(.system(size: working ? 5 : 8)).foregroundColor(working ? accent : muted.opacity(0.65)).frame(width: 10)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -160,6 +160,11 @@ struct SessionsPane: View {
             if !connection.busyIDs.contains(session.id) {
                 if session.requiresT3Response {
                     Text("This question or approval needs T3’s response controls.").font(.system(size: 11)).foregroundColor(muted)
+                    ForEach(session.suggestedReplies, id: \.self) { suggestion in
+                        BistButton(suggestion) { browser.drafts[session.id] = suggestion }
+                            .buttonStyle(.plain).foregroundColor(accent).font(.system(size: 11)).frame(height: 26)
+                            .accessibilityHint("Fills a draft to copy into T3 without sending")
+                    }
                     BistButton("Answer in T3") { connection.openThread(session) }.buttonStyle(.plain).foregroundColor(accent).font(.system(size: 12, weight: .medium)).frame(height: 28)
                 } else if SessionDigest.question(session.preview) != nil {
                     Text("Choose a reply to edit, or write your own.").font(.system(size: 10)).foregroundColor(muted)
@@ -181,6 +186,10 @@ struct SessionsPane: View {
                 Text("Sent to T3. The thread will update here.").font(.system(size: 10)).foregroundColor(muted)
             }
             Divider()
+            if session.threadID == nil && connection.scan.t3.connected {
+                Text("Local history is read-only while T3 is connected. Reply from its thread in Inbox.")
+                    .font(.system(size: 11)).foregroundColor(muted)
+            } else {
             HStack(alignment: .bottom, spacing: 8) {
                 TextField(session.requiresT3Response ? "Write a reply to copy to T3…" : "Reply or give a next step…", text: Binding(get: { browser.drafts[session.id] ?? "" }, set: { browser.drafts[session.id] = $0 }), axis: .vertical)
                     .lineLimit(1...4).textFieldStyle(.plain).font(.system(size: 12)).bistTextEntry().accessibilityLabel("Message to \(session.title)")
@@ -189,6 +198,7 @@ struct SessionsPane: View {
                     .disabled(browser.sending.contains(session.id) || connection.busyIDs.contains(session.id) || (browser.drafts[session.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (browser.drafts[session.id] ?? "").utf8.count > 16_384)
             }.padding(.vertical, 6)
             Text(session.requiresT3Response ? "Copies your text and opens T3 so you can answer there." : session.threadID != nil ? "Sends to this T3 thread. Uses its existing permissions." : "Continues this session using its CLI login and permissions.").font(.system(size: 9)).foregroundColor(muted)
+            }
             if (browser.drafts[session.id] ?? "").utf8.count > 16_384 { Text("Message is too long (16 KB maximum).").font(.system(size: 10)).foregroundColor(.red) }
         }
         .onChange(of: active, initial: true) { _, visible in
