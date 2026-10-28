@@ -58,7 +58,9 @@ struct T3SessionScan {
           FROM orchestration_v2_projection_threads t
           JOIN projection_projects p ON p.project_id=t.project_id
           LEFT JOIN orchestration_v2_projection_runs r ON r.run_id=(
-               SELECT run_id FROM orchestration_v2_projection_runs WHERE thread_id=t.thread_id ORDER BY ordinal DESC LIMIT 1)
+               SELECT run_id FROM orchestration_v2_projection_runs WHERE thread_id=t.thread_id
+                ORDER BY CASE WHEN status IN ('queued','preparing','starting','running','waiting') THEN 0 ELSE 1 END,
+                         ordinal DESC LIMIT 1)
          WHERE t.deleted_at IS NULL AND t.archived_at IS NULL AND p.deleted_at IS NULL
            AND json_extract(t.payload_json,'$.lineage.relationshipToParent') IS NOT 'subagent'
            AND NOT EXISTS (SELECT 1 FROM orchestration_v2_projection_subagents s WHERE s.child_thread_id=t.thread_id)

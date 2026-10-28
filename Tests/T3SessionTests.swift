@@ -89,8 +89,10 @@ struct T3SessionTests {
         expect(T3SessionScan.read(home: home, environment: [:], serverAlive: false).sessions.allSatisfy { !$0.externalRunning }, "Offline saved projections never claim to be running")
         let oldRun = UUID().uuidString
         thread(oldRun, status: "running")
-        sql("INSERT INTO orchestration_v2_projection_runs VALUES ('newer',\(quoted(oldRun)),2,'completed',\(quoted(timestamp)));")
-        expect(T3SessionScan.read(home: home, environment: [:], serverAlive: true).sessions.first { $0.threadID == oldRun }?.externalRunning == false, "Latest run wins over stale running record")
+        sql("INSERT INTO orchestration_v2_projection_runs VALUES ('newer',\(quoted(oldRun)),2,'cancelled',\(quoted(timestamp)));")
+        expect(T3SessionScan.read(home: home, environment: [:], serverAlive: true).sessions.first { $0.threadID == oldRun }?.externalRunning == true, "Cancelling a queued follow-up cannot hide the still-running turn")
+        sql("UPDATE orchestration_v2_projection_runs SET status='completed' WHERE thread_id=\(quoted(oldRun)) AND ordinal=1;")
+        expect(T3SessionScan.read(home: home, environment: [:], serverAlive: true).sessions.first { $0.threadID == oldRun }?.externalRunning == false, "Thread leaves Running when all its turns and helpers stop")
         let fake = home.appendingPathComponent("fake-t3")
         try "#!/bin/sh\nprintf '%s\\n' \"$@\"\n/bin/cat\n".write(to: fake, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
