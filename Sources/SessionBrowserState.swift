@@ -120,6 +120,15 @@ extension SessionProvider {
     }
 }
 
+/// Who is doing running work. Claude and Chat are threads you started. Bobot is working a bist task.
+enum SessionSource: Equatable {
+    case claude, chat, bobot
+    init(_ provider: SessionProvider) { self = provider == .claudeCode ? .claude : .chat }
+    var label: String {
+        switch self { case .claude: return "Claude"; case .chat: return "Chat"; case .bobot: return "Bobot" }
+    }
+}
+
 /// Keyboard triage and search for the Sessions lists. Pure, so order rules stay testable.
 enum SessionTriage {
     /// The row one step from `id` in display order. Starts at an end when nothing valid is selected.
