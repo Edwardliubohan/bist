@@ -40,7 +40,13 @@ final class SessionBrowserState: ObservableObject {
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return [:] }
     }
     func isRead(_ session: LocalAgentSession) -> Bool { (readDates[session.id] ?? .distantPast) >= session.modifiedAt }
-    @discardableResult func read(_ session: LocalAgentSession) -> Bool {
+    @discardableResult func read(_ session: LocalAgentSession) -> Bool { read([session]) }
+    /// One locked write for any number of updates, so Mark all read cannot hide a partial failure.
+    @discardableResult func read(_ sessions: [LocalAgentSession]) -> Bool {
+        guard !sessions.isEmpty else { return true }
+        func mark(_ dates: inout [String: Date]) {
+            for session in sessions { dates[session.id] = max(dates[session.id] ?? .distantPast, session.modifiedAt) }
+        }
         do {
             var dates = readDates
             if let directory {
@@ -52,9 +58,9 @@ final class SessionBrowserState: ObservableObject {
                 guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw CocoaError(.fileWriteUnknown) }
                 defer { flock(descriptor, LOCK_UN) }
                 dates = try Self.load(directory)
-                dates[session.id] = max(dates[session.id] ?? .distantPast, session.modifiedAt)
+                mark(&dates)
                 try JSONEncoder().encode(dates).write(to: directory.appendingPathComponent("sessions-read.json"), options: .atomic)
-            } else { dates[session.id] = max(dates[session.id] ?? .distantPast, session.modifiedAt) }
+            } else { mark(&dates) }
             readDates = dates
             archiveError = nil
             return true
@@ -111,5 +117,19 @@ extension SessionProvider {
     }
     var symbol: String {
         switch self { case .codex: return "command"; case .claudeCode: return "asterisk"; case .muse: return "infinity" }
+    }
+}
+
+/// Keyboard triage and search for the Sessions lists. Pure, so order rules stay testable.
+enum SessionTriage {
+    /// The row one step from `id` in display order. Starts at an end when nothing valid is selected.
+    static func neighbor(of id: String?, in order: [String], step: Int) -> String? {
+        guard !order.isEmpty else { return nil }
+        guard let id, let index = order.firstIndex(of: id) else { return step < 0 ? order.last : order.first }
+        let next = index + step
+        return order.indices.contains(next) ? order[next] : nil
+    }
+    static func search(_ sessions: [LocalAgentSession], browser: SessionBrowserState) -> [LocalAgentSession] {
+        sessions.filter { browser.matches("\($0.title) \($0.activity) \($0.directory) \($0.provider.displayName)") }
     }
 }

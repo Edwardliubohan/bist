@@ -287,7 +287,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.surface?.updateAppearance(transparency: transparency, opaque: opaque)
         }
         state.resize = { [weak self] expanded, animated in self?.position(expanded, animated: animated) }
-        state.expanded = args.contains("--expanded") || args.contains("--demo")
+        state.expanded = args.contains("--expanded") || args.contains("--demo") || args.contains("--sessions")
+        if args.contains("--sessions") { state.selectedTab = 1 }
+        QASnapshot.start { [weak self] in self?.panel }
         position(state.expanded)
         panel.orderFrontRegardless()
         let mainMenu = NSMenu()
@@ -675,10 +677,10 @@ struct BistView: View {
                     .background(state.showSettings ? accent.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 8))
             }.buttonStyle(.plain).accessibilityLabel("Settings").help("Settings · ⌘,")
             Color.clear.frame(width: 32)
-        }.padding(.leading, 17).padding(.trailing, 9).frame(height: 48)
+        }.padding(.leading, 12).padding(.trailing, 9).frame(height: 48)
     }
     var tabs: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 2) {
             tab("Tasks", number: active.count, index: 0)
             tab("Sessions", number: 0, index: 1)
             tab("Note", number: 0, index: 2)
@@ -686,11 +688,11 @@ struct BistView: View {
     }
     func tab(_ title: String, number: Int, index: Int) -> some View {
         BistButton { withAnimation(navigationMotion) { state.selectTab(index) } } label: {
-            HStack(spacing: 7) {
-                Text(title).font(.system(size: 13, weight: state.selectedTab == index ? .semibold : .regular))
-                if number > 0 { Text("\(number)").font(.system(size: 10, weight: .semibold)).padding(.horizontal, 5).padding(.vertical, 2).background(state.selectedTab == index ? accent.opacity(0.1) : .clear, in: Capsule()) }
-            }.foregroundColor(state.selectedTab == index ? ink : muted).padding(.horizontal, 5).frame(height: 34)
-                .overlay(alignment: .bottom) { Rectangle().fill(state.selectedTab == index ? ink : .clear).frame(height: 1) }
+            HStack(spacing: 5) {
+                Text(title).font(.system(size: 13, weight: state.selectedTab == index ? .semibold : .medium))
+                if number > 0 { Text("\(number)").font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundColor(muted) }
+            }.foregroundColor(state.selectedTab == index ? ink : muted).padding(.horizontal, 10).frame(height: 28)
+                .background(state.selectedTab == index ? ink.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityAddTraits(state.selectedTab == index ? .isSelected : []).help("\(title) · ⌘\(index + 1)")
     }

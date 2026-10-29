@@ -98,7 +98,7 @@ struct T3SessionScan {
             session.activeThread = string(5) != "settled" || running || needsInput
             session.childCount = childCount
             if needsInput { session.activity = "Waiting for your answer in T3" }
-            else if running { session.activity = session.childCount > 0 ? "Working · \(session.childCount) helpers" : preview.isEmpty ? "Working in T3…" : session.activity }
+            else if running && preview.isEmpty { session.activity = session.childCount > 0 ? "Working with \(session.childCount) helper\(session.childCount == 1 ? "" : "s")" : "Working in T3…" }
             else if !alive { session.activity = "T3 offline · last saved update" }
             if let request, let data = request.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {

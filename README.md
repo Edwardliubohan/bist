@@ -19,6 +19,8 @@ The build produces `build/bist.app`. Quit any running instance before rebuilding
 ./run.sh --demo --reduced-motion --opaque
 ```
 
+`--sessions` opens the panel on Sessions. For visual checks without Screen Recording permission, set `BIST_SNAPSHOT_DIR` to a folder and bist writes its own panel rendering to `panel.png` there every second.
+
 The app respects macOS Reduce Motion and Reduce Transparency; the corresponding launch options and options-menu toggles also allow local testing. `./test.sh` runs the local regression suites.
 
 ## Checklist
@@ -43,6 +45,8 @@ Note is one plain-text scratchpad, with a borderless editor and automatic local 
 Sessions is a compact thread inbox. When T3 Code is installed, bist reads its local SQLite projections in read-only mode and shows one row per top-level, unarchived thread. Settled threads and delegated child sessions do not flood the inbox. **Running** includes work started in T3, with helper activity rolled up under its parent. **Needs you** groups questions, and **Updates** contains unread responses. Opening an update archives its displayed revision; an unanswered question stays visible. The menu keeps Archive, Local history, and Saved links available separately.
 
 While Sessions is open, T3 state refreshes every three seconds and bounded Codex/Claude history every twenty seconds. An offline T3 server never produces a live-running claim. Missing or unsupported T3 projections produce a visible error and leave Local history accessible. Without T3 data, standalone local sessions remain available; bist can only confirm running state for CLI turns it launches itself.
+
+The inbox is ordered by urgency: **Needs you** first, then **Running**, then **Updates**, with Bobot assignments placed in the same groups. Inbox, Archive, History and Links are visible collections above the list; Archive and History have search. Each row shows the title, a compact age, the project and agent, and a two-line excerpt with markdown removed. An unread update has a dot; **Mark all read** clears Updates at once. Hovering a row shows Mark as read and Open in T3 (or Terminal); right-click offers the same plus Copy Workspace Path. With the list focused, ↑ / ↓ move through rows, Return opens one and E marks it read. In a thread, ⌥⌘↑ / ⌥⌘↓ step to the previous or next item without returning to the list. Responses render paragraphs, lists, headings and code blocks.
 
 Rows show a readable title and latest activity, with an immediate hover highlight. After a 300 ms pointer-intent delay, a passive native window opens to the left with the full title, workspace and a longer excerpt. It fades and translates four points over 160 ms using the existing panel ease-out curve; Reduce Motion keeps only the fade. The preview never activates bist or takes keyboard focus, stays within the display, and dismisses on pointer exit, row selection, navigation, panel movement or closing.
 

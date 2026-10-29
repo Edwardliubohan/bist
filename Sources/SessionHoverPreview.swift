@@ -134,25 +134,26 @@ final class SessionHoverAnchor: NSView {
 struct SessionPreviewContent: View {
     let session: LocalAgentSession
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Circle().fill(session.externalRunning ? accent : muted.opacity(0.5)).frame(width: 5, height: 5)
-                Text(session.awaitingReply ? "NEEDS YOU" : session.externalRunning ? "RUNNING" : "LATEST UPDATE")
-                    .font(.system(size: 9, weight: .semibold)).tracking(0.8)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 5) {
+                if session.awaitingReply { Image(systemName: "questionmark.circle.fill").foregroundColor(accent) }
+                Text(session.awaitingReply ? "Needs your reply" : session.externalRunning ? "Running" : "Latest update")
+                    .foregroundColor(session.awaitingReply ? accent : session.externalRunning ? ink : muted)
                 Spacer()
-                Text(session.threadID == nil ? session.provider.shortName : "T3 · \(session.provider.shortName)").font(.system(size: 10))
-            }.foregroundStyle(muted)
+                Text(SessionText.age(session.modifiedAt)).monospacedDigit().foregroundColor(muted)
+            }.font(.system(size: 11, weight: .medium))
             Text(session.title).font(.system(size: 14, weight: .semibold)).lineLimit(3)
-            Text((session.directory as NSString).abbreviatingWithTildeInPath).font(.system(size: 10)).foregroundStyle(muted).lineLimit(2).truncationMode(.middle)
+            Text("\(session.meta) · \((session.directory as NSString).abbreviatingWithTildeInPath)")
+                .font(.system(size: 11)).foregroundStyle(muted).lineLimit(2).truncationMode(.middle)
             Divider()
-            Text(SessionDigest.excerpt(session.question ?? (session.preview.isEmpty ? session.activity : session.preview)))
-                .font(.system(size: 12)).lineSpacing(3).lineLimit(5)
+            Text(SessionText.plain(session.question ?? (session.preview.isEmpty ? session.activity : session.preview)))
+                .font(.system(size: 12)).lineSpacing(2).lineLimit(7)
             Spacer(minLength: 0)
-            Text("Click the session to read and respond").font(.system(size: 10)).foregroundStyle(muted)
-        }.padding(16).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Text("Click to read and reply").font(.system(size: 11)).foregroundStyle(muted)
+        }.padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .foregroundStyle(ink).background(ivory)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(muted.opacity(0.14), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(hairline, lineWidth: 1))
             .preferredColorScheme(.light)
     }
 }

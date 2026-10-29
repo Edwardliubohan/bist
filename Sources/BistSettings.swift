@@ -43,6 +43,9 @@ struct BistSettingsView: View {
                         VStack(alignment: .leading, spacing: 9) {
                             shortcut("New task", "⌘N")
                             shortcut("Tasks / Sessions / Note", "⌘1 / ⌘2 / ⌘3")
+                            shortcut("Move through sessions", "↑ / ↓")
+                            shortcut("Open session / mark read", "Return / E")
+                            shortcut("Previous / next session", "⌥⌘↑ / ⌥⌘↓")
                             shortcut("Settings", "⌘,")
                             shortcut("Undo task change", "⌘Z")
                             shortcut("Go back / collapse", "Esc")
