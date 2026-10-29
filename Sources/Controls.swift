@@ -34,7 +34,6 @@ let faint = muted.opacity(0.55)
 let fieldFill = Color.white.opacity(0.55)
 let hairline = ink.opacity(0.12)
 let danger = Color.red
-let needsYou = Color(red: 0.80, green: 0.36, blue: 0.0)
 
 private struct BistPointingHand: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
