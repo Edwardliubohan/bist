@@ -103,6 +103,8 @@ struct BobotFlowTests {
         let execution = UUID().uuidString.lowercased()
         let resumed = try tool("resume_job", ["job_id": id, "claim_id": claim, "execution_id": execution, "answer_revision": ready["revision"]!])
         bobot.refresh()
+        precondition(store.addTask(title: "Pick up dry cleaning"), "Add a personal task never sent to an agent")
+        precondition(!bobot.agentAssigned(store.tasks[1]), "Personal task leaves the Agent column empty")
         let checklist = GlassHostingView(rootView: ChecklistPane(store: store, openTask: { _ in }, focusRequest: 0,
             reducedMotion: true, viewState: ChecklistViewState())
             .foregroundColor(ink).frame(width: 360, height: 560).background(ivory)

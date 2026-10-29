@@ -60,6 +60,10 @@ final class BobotStore: ObservableObject {
     }
     var pending: [BobotJob] { jobs.filter { $0.pendingQuestion != nil } }
     func latest(for id: UUID) -> BobotJob? { jobs.last { $0.taskID == id.uuidString.lowercased() } }
+    /// Only tasks sent to an agent get an Agent mark. Personal tasks leave the column empty.
+    func agentAssigned(_ task: TaskItem) -> Bool {
+        task.agentHelpRequested || task.agentCompletion != nil || latest(for: task.id) != nil
+    }
     /// The latest explicit assignment supersedes older results, including a rerun.
     /// This is a display projection only; personal completion and Undo stay in AppStore.
     func agentCompletionStatus(for task: TaskItem) -> (done: Bool, value: String, hint: String) {
