@@ -30,6 +30,10 @@ let muted = Color(red: 0.34, green: 0.28, blue: 0.23)
 let accent = Color(red: 0.64, green: 0.24, blue: 0.055)
 let cornerOrange = Color(red: 0.94, green: 0.36, blue: 0.12)
 let ivory = Color(red: 0.99, green: 0.97, blue: 0.94)
+let faint = muted.opacity(0.55)
+let fieldFill = Color.white.opacity(0.55)
+let hairline = ink.opacity(0.12)
+let danger = Color.red
 
 private struct BistPointingHand: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled

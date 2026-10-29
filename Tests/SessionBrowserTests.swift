@@ -158,6 +158,44 @@ struct SessionBrowserTests {
         try capture("visible-detail")
         expect(browser.isRead(sessions[2]), "Remounting visible detail acknowledges its initial displayed update")
         expect(store.tasks == beforeTasks && store.sessions == beforeLinks, "Browsing and rendering never changes user data")
+        // Readable excerpts and blocks for the triage inbox.
+        expect(SessionText.plain("Adding a `--sessions` **launch** flag") == "Adding a --sessions launch flag", "Excerpts drop inline markdown")
+        expect(SessionText.plain("## Done\n\nSee [the PR](https://example.com) now") == "Done See the PR now", "Excerpts drop headings and link targets")
+        expect(SessionText.plain("4. *Blocking integrity checks.") == "4. Blocking integrity checks.", "A dangling emphasis marker is removed")
+        expect(SessionText.plain("2 * 3 = 6") == "2 * 3 = 6", "Spaced asterisks stay as text")
+        let blocks = SessionText.blocks("Round 4 is done.\n\n1. **Stdin** isolation\n2. Hash-then-parse\n  - nested\n\n```\nswift test\n```\n# Next")
+        expect(blocks == [.paragraph("Round 4 is done."), .item("1.", "**Stdin** isolation", 0), .item("2.", "Hash-then-parse", 0),
+                          .item("•", "nested", 1), .code("swift test"), .heading("Next")], "Markdown becomes paragraphs, list items, code and headings")
+        expect(SessionText.age(now.addingTimeInterval(-20), now: now) == "now", "Recent activity reads as now")
+        expect(SessionText.age(now.addingTimeInterval(-4 * 60), now: now) == "4m", "Minutes use a compact column")
+        expect(SessionText.age(now.addingTimeInterval(-3 * 3600), now: now) == "3h", "Hours use a compact column")
+        expect(SessionText.age(now.addingTimeInterval(-2 * 86_400), now: now) == "2d", "Days use a compact column")
+        var meta = sessions[0]; meta.childCount = 2
+        expect(meta.meta == "bist · Codex · 2 helpers", "Row meta names project, agent and helpers")
+        expect(sessions[4].meta == "Root folder · Codex", "Root workspace meta stays readable")
+        // Keyboard triage moves through the visible order and stops at either end.
+        let order = ["q", "r", "u1", "u2"]
+        expect(SessionTriage.neighbor(of: nil, in: order, step: 1) == "q", "Down with nothing selected starts at the top")
+        expect(SessionTriage.neighbor(of: nil, in: order, step: -1) == "u2", "Up with nothing selected starts at the bottom")
+        expect(SessionTriage.neighbor(of: "r", in: order, step: 1) == "u1", "Down moves to the next row")
+        expect(SessionTriage.neighbor(of: "r", in: order, step: -1) == "q", "Up moves to the previous row")
+        expect(SessionTriage.neighbor(of: "u2", in: order, step: 1) == nil, "Down at the end has no next row")
+        expect(SessionTriage.neighbor(of: "q", in: order, step: -1) == nil, "Up at the start has no previous row")
+        expect(SessionTriage.neighbor(of: "gone", in: order, step: 1) == "q", "A row that left the list restarts at the top")
+        expect(SessionTriage.neighbor(of: "q", in: [], step: 1) == nil, "An empty list has no rows")
+        // Search covers Archive and History by title, project, agent and activity.
+        browser.provider = nil
+        browser.query = "caret"
+        expect(SessionTriage.search(sessions, browser: browser).map(\.sessionID) == [latestID], "Search matches the activity title")
+        browser.query = "archive codex"
+        expect(SessionTriage.search(sessions, browser: browser).count == 1, "Every search word must match")
+        browser.query = ""
+        expect(SessionTriage.search(sessions, browser: browser).count == sessions.count, "An empty search keeps every session")
+        expect(SessionText.plain("Fixed `__init__` in `*ptr` handling") == "Fixed __init__ in *ptr handling", "Inline code keeps its exact characters")
+        expect(SessionText.blocks("- parent\n\t- tab child\n    - four child") == [.item("•", "parent", 0), .item("•", "tab child", 1), .item("•", "four child", 1)], "Tab and four-space indents nest one level")
+        let batch = SessionBrowserState()
+        expect(batch.read(Array(sessions.prefix(3))), "Mark all read succeeds")
+        expect(sessions.prefix(3).allSatisfy(batch.isRead) && !batch.isRead(sessions[3]), "Mark all read covers exactly the given updates")
         print("PASS: \(checks) session-browser checks; native captures cover grouping, older sessions, search, no matches, saved links, long names and a smaller panel")
     }
 }
