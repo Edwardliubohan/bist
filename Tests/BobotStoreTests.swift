@@ -13,6 +13,9 @@ struct BobotStoreTests {
         let task = tasks.tasks[0]
         let bobot = BobotStore(directory: directory)
         expect(bobot.jobs.isEmpty, "Restored intent never assigns work")
+        expect(bobot.agentAssigned(task), "Requested agent help shows an Agent mark")
+        let personal = TaskItem(title: "Personal errand")
+        expect(!bobot.agentAssigned(personal), "Tasks never sent to an agent show no Agent mark")
         expect(bobot.assign(task) && bobot.assign(task) && bobot.jobs.count == 1, "Duplicate assignment is idempotent")
         expect(!bobot.connected && bobot.jobs[0].state == "queued", "Disconnected work is queued truthfully")
         let other = BobotStore(directory: directory)
@@ -41,6 +44,7 @@ struct BobotStoreTests {
         expect(restored.assign(task) && restored.jobs.count == 2, "Explicit rerun gets separate history")
         let longTitleTask = TaskItem(title: String(repeating: "a", count: 240))
         expect(restored.assign(longTitleTask) && BobotStore(directory: directory).jobs.count == 3, "Longest valid task title survives reload")
+        expect(restored.agentAssigned(longTitleTask), "A Bobot assignment shows an Agent mark")
         expect(!restored.assign(TaskItem(title: String(repeating: "a", count: 241))), "Invalid proposed ledger is rejected before publication")
         expect(BobotStore(directory: directory).jobs.count == 3, "Rejected write leaves valid queue readable")
         expect(!tasks.tasks[0].completed && tasks.tasks[0].agentCompletion == nil, "Agent ledger never completes task")
@@ -49,6 +53,7 @@ struct BobotStoreTests {
             summary: "Reviewed result", observedAt: Date(), reviewedAt: Date())
         expect(BobotStore(directory: directory).agentCompletionStatus(for: reviewedTask).done,
                "Legacy manual evidence still checks Agent without a Bobot assignment")
+        expect(BobotStore(directory: directory).agentAssigned(reviewedTask), "Recorded agent evidence keeps the Agent mark")
         // Agent completion follows persisted assignment state, independently of Me.
         func report(_ state: String) throws {
             var value = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]

@@ -594,18 +594,20 @@ private struct AgentDoneMark: View {
     let task: TaskItem
     @EnvironmentObject private var bobot: BobotStore
     var body: some View {
-        let status = bobot.agentCompletionStatus(for: task)
-        Group {
-            if status.done {
-                Image(systemName: "checkmark.seal.fill").font(.system(size: 12)).foregroundColor(accent)
-            } else {
-                Circle().strokeBorder(muted.opacity(0.3), lineWidth: 0.8).frame(width: 10, height: 10)
+        if bobot.agentAssigned(task) {
+            let status = bobot.agentCompletionStatus(for: task)
+            Group {
+                if status.done {
+                    Image(systemName: "checkmark.seal.fill").font(.system(size: 12)).foregroundColor(accent)
+                } else {
+                    Circle().strokeBorder(muted.opacity(0.3), lineWidth: 0.8).frame(width: 10, height: 10)
+                }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Agent completion for \(task.title)")
+            .accessibilityValue(status.value)
+            .accessibilityHint(status.hint)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Agent completion for \(task.title)")
-        .accessibilityValue(status.value)
-        .accessibilityHint(status.hint)
     }
 }
 
@@ -736,8 +738,10 @@ private struct TaskInspectorContent: View {
                                             .font(.system(size: 11)).foregroundColor(task.completed ? accent : ink)
                                     }.buttonStyle(.plain).accessibilityValue(task.completed ? "Checked" : "Unchecked")
                                     Spacer()
-                                    AgentDoneMark(task: task)
-                                    Text("Agent done").font(.system(size: 11)).foregroundColor(muted)
+                                    if bobot.agentAssigned(task) {
+                                        AgentDoneMark(task: task)
+                                        Text("Agent done").font(.system(size: 11)).foregroundColor(muted)
+                                    }
                                 }.frame(height: 24)
                                 field("Next action", text: $draft.nextAction, prompt: "One concrete next step")
                                 organization(task)
