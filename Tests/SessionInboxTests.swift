@@ -9,6 +9,11 @@ struct SessionInboxTests {
         var checks = 0
         func expect(_ value: Bool, _ message: String) { precondition(value, message); checks += 1 }
         let session = LocalAgentSession(provider: .codex, sessionID: UUID(), directory: folder.path, modifiedAt: Date().addingTimeInterval(-60), configurationDirectory: folder.appendingPathComponent("codex-config").path, name: "Fix inbox", activity: "Running checks", preview: "Tests passed")
+        expect(SessionSource(.claudeCode) == .claude && SessionSource(.codex) == .chat, "Running threads are tagged by who you sent them to")
+        expect([SessionSource.claude, .chat, .bobot].map(\.label) == ["Claude", "Chat", "Bobot"], "Source tags use plain names")
+        expect(Set([SessionSource.claude, .chat, .bobot].map(\.tint)).count == 3, "Each source has its own color")
+        expect(session.meta == "\(folder.lastPathComponent) · Codex" && session.meta(showingProvider: false) == folder.lastPathComponent,
+               "A tagged row drops the duplicate provider name")
         let state = SessionBrowserState(directory: folder)
         expect(state.inbox([session], running: []).count == 1, "New updates are unread")
         expect(state.inbox([session], running: [session.id]).isEmpty, "Running sessions are not duplicated below")

@@ -244,8 +244,9 @@ struct SessionsPane: View {
     private func row(_ session: LocalAgentSession, kind: SessionRowKind) -> some View {
         let hovered = hoveredID == session.id || (hoveredID == nil && keyboardRow == session.id && listFocused)
         return BistButton(focusRadius: 7) { openFromList(session.id) } label: {
-            SessionRow(kind: kind, title: SessionText.plain(session.title), meta: session.meta, excerpt: excerpt(session, kind: kind),
-                       date: session.modifiedAt, hovered: hovered, showsActions: hovered && kind != .running)
+            SessionRow(kind: kind, title: SessionText.plain(session.title), meta: session.meta(showingProvider: kind != .running),
+                       excerpt: excerpt(session, kind: kind), date: session.modifiedAt, hovered: hovered,
+                       showsActions: hovered && kind != .running, source: kind == .running ? SessionSource(session.provider) : nil)
         }.buttonStyle(.plain)
             .overlay(alignment: .topTrailing) {
                 if hovered && kind != .running { rowActions(session, kind: kind).padding(.top, 6).padding(.trailing, 6) }
@@ -257,7 +258,7 @@ struct SessionsPane: View {
             .background(SessionHoverPreview(session: session, enabled: active && selected == nil, reduced: reduced || systemReduced))
             .contextMenu { rowMenu(session, kind: kind) }
             .id(session.id)
-            .accessibilityLabel("\(kind.accessibilityPrefix)\(session.title), \(session.meta). \(excerpt(session, kind: kind))")
+            .accessibilityLabel("\(kind.accessibilityPrefix)\(session.title), \(kind == .running ? "\(SessionSource(session.provider).label), \(session.meta(showingProvider: false))" : session.meta). \(excerpt(session, kind: kind))")
             .accessibilityHint(kind == .running ? "Opens the running session" : kind == .unread || kind == .needsYou ? "Opens and archives this update" : "Opens this session")
     }
 
@@ -291,9 +292,10 @@ struct SessionsPane: View {
         let id = "bobot:\(job.id)"
         let excerpt = job.pendingQuestion?.text ?? (job.state == "completed" ? (job.result ?? job.status) : job.status)
         return BistButton(focusRadius: 7) { openFromList(id) } label: {
-            SessionRow(kind: kind, title: job.title, meta: "Bobot · \(job.status)", excerpt: SessionText.plain(excerpt),
+            SessionRow(kind: kind, title: job.title, meta: kind == .running ? job.status : "Bobot · \(job.status)", excerpt: SessionText.plain(excerpt),
                        date: Date(timeIntervalSince1970: job.updatedAt),
-                       hovered: hoveredID == id || (hoveredID == nil && keyboardRow == id && listFocused), showsActions: false)
+                       hovered: hoveredID == id || (hoveredID == nil && keyboardRow == id && listFocused), showsActions: false,
+                       source: kind == .running ? .bobot : nil)
         }.buttonStyle(.plain).id(id)
             .onHover { inside in
                 hoveredID = inside ? id : hoveredID == id ? nil : hoveredID
@@ -542,6 +544,8 @@ struct SessionRow: View {
     let date: Date
     let hovered: Bool
     let showsActions: Bool
+    /// Running rows only. A colored edge and tag show who is doing the work.
+    var source: SessionSource? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -554,7 +558,7 @@ struct SessionRow: View {
                         .font(.system(size: 11)).monospacedDigit().foregroundColor(muted)
                         .opacity(showsActions ? 0 : 1)
                 }
-                Text(meta).font(.system(size: 11)).foregroundColor(muted).lineLimit(1).truncationMode(.middle)
+                metaLine
                 Text(excerpt).font(.system(size: 12)).foregroundColor(kind == .needsYou ? ink : muted)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true).padding(.top, 1)
             }
@@ -562,7 +566,20 @@ struct SessionRow: View {
         .padding(.horizontal, 8).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(hovered ? ink.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(alignment: .leading) {
+            if let source { Capsule().fill(source.tint).frame(width: 3).padding(.vertical, 8) }
+        }
         .contentShape(Rectangle())
+    }
+
+    private var metaLine: some View {
+        HStack(spacing: 0) {
+            if let source {
+                Text(source.label).fontWeight(.semibold).foregroundColor(source.tint).layoutPriority(1)
+                if !meta.isEmpty { Text(" · ").foregroundColor(muted) }
+            }
+            Text(meta).foregroundColor(muted).truncationMode(.middle)
+        }.font(.system(size: 11)).lineLimit(1)
     }
 
     @ViewBuilder private var mark: some View {
@@ -677,13 +694,26 @@ enum SessionText {
 
 extension LocalAgentSession {
     /// Project and agent in one line, so the row says where the work lives.
-    var meta: String {
+    var meta: String { meta(showingProvider: true) }
+    /// Rows with a colored source tag already name the provider.
+    func meta(showingProvider: Bool) -> String {
         let project = directory == "/" ? "Root folder" : URL(fileURLWithPath: directory).lastPathComponent
-        var parts = [project, provider.shortName]
+        var parts = showingProvider ? [project, provider.shortName] : [project]
         if childCount > 0 { parts.append("\(childCount) helper\(childCount == 1 ? "" : "s")") }
         return parts.joined(separator: " · ")
     }
     var openTitle: String { threadID == nil ? "Open in Terminal" : "Open in T3" }
+}
+
+extension SessionSource {
+    /// Darkened brand hues, readable as 11 pt text on ivory and distinct from the Needs you accent.
+    var tint: Color {
+        switch self {
+        case .claude: return Color(red: 0.74, green: 0.36, blue: 0.20)
+        case .chat: return Color(red: 0.05, green: 0.49, blue: 0.38)
+        case .bobot: return Color(red: 0.35, green: 0.33, blue: 0.80)
+        }
+    }
 }
 
 extension SessionCollection {
