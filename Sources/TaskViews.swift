@@ -29,7 +29,7 @@ struct ChecklistPane: View {
         nonmutating set { viewState.showLabels = newValue }
     }
     private func entries(for horizon: TaskHorizon, at now: Date) -> [ChecklistEntry] {
-        ActiveChecklist(tasks: store.tasks, collapsedParents: collapsedParents, now: now).entries(for: horizon)
+        ActiveChecklist(tasks: store.tasks, collapsedParents: [], now: now).entries(for: horizon)
     }
 
     var body: some View {
@@ -65,7 +65,7 @@ struct ChecklistPane: View {
                     Rectangle().fill(ink.opacity(0.07)).frame(height: 0.5).padding(.horizontal, 17)
                     ScrollViewReader { scrollProxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
+                        VStack(alignment: .leading, spacing: 0) {
                             if store.tasks.isEmpty {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Text("Your next step, right here.").font(.system(size: 13, weight: .medium))
@@ -111,6 +111,8 @@ struct ChecklistPane: View {
 
     private func section(_ horizon: TaskHorizon, at now: Date, scrollProxy: ScrollViewProxy) -> some View {
         let rows = entries(for: horizon, at: now)
+        let visibleIDs = Set(ActiveChecklist(tasks: store.tasks, collapsedParents: collapsedParents, now: now)
+            .entries(for: horizon).map(\.id))
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 5) {
                 Text(horizon.title).font(.system(size: 13, weight: .semibold))
@@ -139,7 +141,11 @@ struct ChecklistPane: View {
                 .overlay(TaskDropIndicator(placement: drag.target, rowID: entry.id, depth: entry.depth, reducedMotion: reducedMotion))
                 .onDrop(of: [.text], delegate: TaskRowDropDelegate(rowID: entry.id, horizon: horizon, store: store, drag: drag, didMove: revealMovedParent))
                 .id(entry.id)
-                .transition(TaskListMotion.reveal(reduced: reducedMotion))
+                .modifier(TaskRowReveal(progress: visibleIDs.contains(entry.id) ? 1 : 0))
+                .animation(TaskListMotion.disclosure(reduced: reducedMotion), value: visibleIDs.contains(entry.id))
+                .allowsHitTesting(visibleIDs.contains(entry.id))
+                .disabled(!visibleIDs.contains(entry.id))
+                .accessibilityHidden(!visibleIDs.contains(entry.id))
                 .environment(\.bistFocusReveal, { scrollProxy.scrollTo(entry.id, anchor: .center) })
                 .contextMenu {
                     Button("Open details") { openTask(entry.id) }
@@ -592,7 +598,7 @@ private struct ChecklistRow: View {
         .background(labels.first.map { $0.color.tint.opacity(hovered ? 0.22 : 0.15) } ?? (hovered ? surfaceHighlight.opacity(0.36) : .clear), in: RoundedRectangle(cornerRadius: 6))
         .overlay(alignment: .bottom) { Rectangle().fill(ink.opacity(0.045)).frame(height: 0.5).padding(.leading, 38).allowsHitTesting(false) }
         .onHover { hovered = $0 }
-        .animation(TaskListMotion.hierarchy(reduced: reducedMotion), value: collapsed)
+        .animation(TaskListMotion.disclosure(reduced: reducedMotion), value: collapsed)
         .animation(TaskListMotion.hierarchy(reduced: reducedMotion), value: entry.depth)
         .animation(TaskListMotion.feedback(reduced: reducedMotion), value: hovered)
         .animation(reducedMotion ? nil : .easeOut(duration: 0.14), value: entry.task.completed)
