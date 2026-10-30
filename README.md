@@ -2,12 +2,56 @@
 
 A small native macOS checklist and session panel in the top-right corner. A rounded orange-gradient geometric mark sits in a 48-point glass control; hover briefly for a passive task preview, or click for the full panel.
 
-## Run locally
+## Installation
 
-Requires an Apple Silicon Mac running macOS 14 or later and Apple Swift command-line tools. No packages, account connection, or network service is required.
+Requires an Apple Silicon Mac (M1 or later), macOS 14 Sonoma or later, and Apple's Xcode Command Line Tools. The build currently targets Apple Silicon only. No third-party packages or account connection are required for the checklist and notes.
+
+1. Install the command-line tools if you don't already have them, then finish the macOS installer before continuing.
+
+   ```sh
+   xcode-select --install
+   ```
+
+2. Clone the repository and build the app.
+
+   ```sh
+   git clone https://github.com/Edwardliubohan/bist.git
+   cd bist
+   ./build.sh
+   ```
+
+3. Copy the built app to your user Applications folder and open it. Quit any running copy of bist before installing or updating.
+
+   ```sh
+   mkdir -p "$HOME/Applications"
+   ditto build/bist.app "$HOME/Applications/bist.app"
+   open "$HOME/Applications/bist.app"
+   ```
+
+Look for the small orange control near the top-right corner of your screen. Click it to open the panel. bist runs without a Dock icon.
+
+The build signs the app locally. If macOS blocks opening it, use System Settings → Privacy & Security → Open Anyway after attempting to open it.
+
+### Updating
+
+Quit bist, then run these commands from your cloned repository and reopen the installed copy. Tasks and notes stay in `~/Library/Application Support/bist/`, separately from the app.
 
 ```sh
-cd bist
+git pull --ff-only
+./build.sh
+ditto build/bist.app "$HOME/Applications/bist.app"
+open "$HOME/Applications/bist.app"
+```
+
+### Optional integrations
+
+Tasks and notes work on their own. Sessions can use a separately installed T3 Code, Codex CLI, or Claude Code with its existing configuration. Bobot requires the separate [Bobot setup](docs/BOBOT.md).
+
+## Run locally
+
+To build and run directly from the cloned repository instead of installing a copy, run the following from the `bist` directory.
+
+```sh
 ./run.sh
 ```
 
