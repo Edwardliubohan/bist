@@ -12,8 +12,8 @@ enum TaskListMotion {
         reduced ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.14)
     }
 
-    static func reveal(reduced: Bool) -> AnyTransition {
-        reduced ? .identity : .modifier(active: TaskRowReveal(progress: 0), identity: TaskRowReveal(progress: 1))
+    static func disclosure(reduced: Bool) -> Animation? {
+        reduced ? nil : .smooth(duration: 0.34, extraBounce: 0)
     }
 }
 
@@ -32,8 +32,9 @@ struct TaskDragGrip: View {
     }
 }
 
-/// Reveal from the parent down, clipping content as sibling rows make room.
-private struct TaskRowReveal: AnimatableModifier {
+/// Keep hidden rows in layout so the scroll extent follows every animation frame.
+/// Removal transitions only retain drawing and let AppKit clamp scrolling early.
+struct TaskRowReveal: AnimatableModifier {
     var progress: CGFloat
     var animatableData: CGFloat {
         get { progress }
@@ -43,7 +44,7 @@ private struct TaskRowReveal: AnimatableModifier {
     func body(content: Content) -> some View {
         content.frame(height: 30, alignment: .top)
             .frame(height: 30 * max(0, min(1, progress)), alignment: .top)
-            .clipped().opacity(Double(progress))
+            .clipped().opacity(Double(min(1, max(0, progress) * 2)))
     }
 }
 
