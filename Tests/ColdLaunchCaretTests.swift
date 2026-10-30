@@ -66,9 +66,18 @@ private final class KeySink: NSView { override var acceptsFirstResponder: Bool {
         precondition(editor.activatedBeforeCaretRefresh, "Blink refresh must run after native input-context activation")
         precondition(editor.selectedRange() == NSRange(location: 3, length: 0), "Cold-start repair must preserve the insertion location")
         precondition(editor.string == "cold launch draft", "Cold-start repair must preserve draft text")
-        let color = editor.insertionPointColor.usingColorSpace(.sRGB)!
-        precondition(abs(color.redComponent - 0.64) < 0.01 && abs(color.greenComponent - 0.24) < 0.01 && abs(color.blueComponent - 0.055) < 0.01,
-                     "First caret must use the app burnt-orange accent")
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            panel.appearance = NSAppearance(named: appearance)
+            panel.refreshTextInsertionPoint()
+            panel.effectiveAppearance.performAsCurrentDrawingAppearance {
+                let color = editor.insertionPointColor.usingColorSpace(.sRGB)!
+                let expected = NSColor(accent).usingColorSpace(.sRGB)!
+                precondition(abs(color.redComponent - expected.redComponent) < 0.01 &&
+                       abs(color.greenComponent - expected.greenComponent) < 0.01 &&
+                       abs(color.blueComponent - expected.blueComponent) < 0.01,
+                       "Native caret follows the app accent in both themes")
+            }
+        }
         _ = panel.makeFirstResponder(sink)
         NSApp.updateWindows()
         panel.orderOut(nil)

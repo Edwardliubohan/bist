@@ -51,9 +51,18 @@ private final class CaretProbe: NSTextView {
         panel.sendEvent(click)
         expect(editor.refreshes > 0, "Panel restarts native caret after mouse handling even if the editor already owns focus")
         expect(editor.selectedRange() == NSRange(location: 4, length: 0), "Caret refresh preserves the insertion location")
-        let color = editor.insertionPointColor.usingColorSpace(.sRGB)!
-        expect(abs(color.redComponent - 0.64) < 0.01 && abs(color.greenComponent - 0.24) < 0.01 && abs(color.blueComponent - 0.055) < 0.01,
-               "Native caret uses the app burnt-orange accent")
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            panel.appearance = NSAppearance(named: appearance)
+            panel.refreshTextInsertionPoint()
+            panel.effectiveAppearance.performAsCurrentDrawingAppearance {
+                let color = editor.insertionPointColor.usingColorSpace(.sRGB)!
+                let expected = NSColor(accent).usingColorSpace(.sRGB)!
+                expect(abs(color.redComponent - expected.redComponent) < 0.01 &&
+                       abs(color.greenComponent - expected.greenComponent) < 0.01 &&
+                       abs(color.blueComponent - expected.blueComponent) < 0.01,
+                       "Native caret follows the app accent in both themes")
+            }
+        }
 
         let delegate = AppDelegate()
         delegate.panel = panel

@@ -58,3 +58,6 @@ build/tests/bobot-flow
 
 xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/CompletionRetentionTests.swift -o build/tests/completion-retention
 build/tests/completion-retention
+
+xcrun swiftc -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/AppearanceTests.swift -o build/tests/appearance
+build/tests/appearance

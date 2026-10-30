@@ -2,12 +2,12 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-private extension TaskLabelColor {
+extension TaskLabelColor {
     var tint: Color {
         let value = UInt32(hex.dropFirst(), radix: 16) ?? 0xAD7A38
-        return Color(red: Double((value >> 16) & 255) / 255,
-                     green: Double((value >> 8) & 255) / 255,
-                     blue: Double(value & 255) / 255)
+        return BistPalette.category(NSColor(srgbRed: Double((value >> 16) & 255) / 255,
+                                            green: Double((value >> 8) & 255) / 255,
+                                            blue: Double(value & 255) / 255, alpha: 1))
     }
 }
 
@@ -255,7 +255,7 @@ private struct TaskComposer: View {
                 }.frame(height: 25)
                 if draft.detailsExpanded {
                     TextEditor(text: $draft.details).font(.system(size: 11)).bistTextEntry().scrollContentBackground(.hidden)
-                        .frame(height: 42).padding(6).background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
+                        .frame(height: 42).padding(6).background(surfaceHighlight.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
                         .accessibilityLabel("Optional task details")
                 }
             }
@@ -268,8 +268,8 @@ private struct TaskComposer: View {
                 }
             }
         }.padding(.horizontal, 9).padding(.vertical, 5)
-            .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(nameFocused ? accent.opacity(0.5) : .white.opacity(0.8), lineWidth: 0.8))
+            .background(surfaceHighlight.opacity(0.22), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(nameFocused ? accent.opacity(0.5) : surfaceBorder.opacity(0.8), lineWidth: 0.8))
             .onChange(of: draft.expanded) {
                 if !draft.expanded { draft.detailsExpanded = false; draft.creatingLabel = false }
             }
@@ -412,7 +412,7 @@ private struct NewTagEntry: View {
     var body: some View {
         HStack(spacing: 6) {
             TextField("New label name", text: $name).textFieldStyle(.plain).bistTextEntry(focused: $focused).font(.system(size: 11))
-                .padding(7).background(.white.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+                .padding(7).background(surfaceHighlight.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
                 .onSubmit(create).accessibilityLabel("New label name")
             BistButton("Create", action: create).buttonStyle(.plain).font(.system(size: 10, weight: .medium)).foregroundColor(accent)
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -448,7 +448,7 @@ private struct CompactSelection<Value: Hashable>: View {
                 Text(options.first(where: { $0.id == selection })?.title ?? "Not available").font(.system(size: 11)).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 8)).foregroundColor(muted)
             }.padding(.horizontal, 8).frame(height: 29).contentShape(Rectangle())
-                .background(.white.opacity(0.35), in: RoundedRectangle(cornerRadius: 7))
+                .background(surfaceHighlight.opacity(0.35), in: RoundedRectangle(cornerRadius: 7))
         }.buttonStyle(.plain).accessibilityLabel(title).accessibilityValue(options.first(where: { $0.id == selection })?.title ?? "Not available")
             .popover(isPresented: $presented, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -553,10 +553,10 @@ private struct ChecklistRow: View {
                 .accessibilityLabel("Drag \(entry.task.title) to move or nest")
             BistButton(focusRadius: 5, action: toggleUser) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 3).fill(entry.task.completed ? accent : .white.opacity(0.35))
+                    RoundedRectangle(cornerRadius: 3).fill(entry.task.completed ? accent : surfaceHighlight.opacity(0.35))
                     RoundedRectangle(cornerRadius: 3).strokeBorder(entry.task.completed ? accent : muted.opacity(0.5), lineWidth: 0.8)
                     ChecklistTick().trim(from: 0, to: entry.task.completed ? 1 : 0)
-                        .stroke(.white, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)).padding(3)
+                        .stroke(actionInk, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)).padding(3)
                 }.frame(width: 13, height: 13).frame(width: 26, height: 26).contentShape(Rectangle())
             }.buttonStyle(.plain)
                 .accessibilityLabel("\(entry.task.completed ? "Mark mine unfinished" : "Mark mine done"): \(entry.task.title)")
@@ -589,7 +589,7 @@ private struct ChecklistRow: View {
             AgentDoneMark(task: entry.task).frame(width: 32, height: 26)
         }
         .frame(height: 30)
-        .background(labels.first.map { $0.color.tint.opacity(hovered ? 0.22 : 0.15) } ?? (hovered ? .white.opacity(0.36) : .clear), in: RoundedRectangle(cornerRadius: 6))
+        .background(labels.first.map { $0.color.tint.opacity(hovered ? 0.22 : 0.15) } ?? (hovered ? surfaceHighlight.opacity(0.36) : .clear), in: RoundedRectangle(cornerRadius: 6))
         .overlay(alignment: .bottom) { Rectangle().fill(ink.opacity(0.045)).frame(height: 0.5).padding(.leading, 38).allowsHitTesting(false) }
         .onHover { hovered = $0 }
         .animation(TaskListMotion.hierarchy(reduced: reducedMotion), value: collapsed)
@@ -717,7 +717,7 @@ private struct TaskInspectorContent: View {
                                 .accessibilityLabel("\(draft.detailsExpanded ? "Hide" : "Show") optional details")
                             if draft.detailsExpanded {
                                 TextEditor(text: $draft.notes).font(.system(size: 11)).bistTextEntry().scrollContentBackground(.hidden)
-                                    .frame(height: 70).padding(6).background(.white.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
+                                    .frame(height: 70).padding(6).background(surfaceHighlight.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
                                     .accessibilityLabel("Optional task details")
                             }
                             TaskTagPicker(store: store,
@@ -881,7 +881,7 @@ private struct TaskInspectorContent: View {
         VStack(alignment: .leading, spacing: 5) {
             caption(name)
             TextField(prompt, text: text).textFieldStyle(.plain).bistTextEntry().font(.system(size: 11)).padding(8)
-                .background(.white.opacity(0.4), in: RoundedRectangle(cornerRadius: 7)).accessibilityLabel(name)
+                .background(surfaceHighlight.opacity(0.4), in: RoundedRectangle(cornerRadius: 7)).accessibilityLabel(name)
         }
     }
     private var hasTextChanges: Bool { draft.isDirty }
@@ -931,19 +931,19 @@ private struct TaskLabelManager: View {
                             } label: { Image(systemName: "trash").font(.system(size: 10)).frame(width: 26, height: 29) }
                                 .buttonStyle(.plain).foregroundColor(muted).accessibilityLabel("Delete \(label.name) label").help("Remove this label from all tasks")
                         }.padding(.horizontal, 7)
-                            .background(editingID == label.id ? .white.opacity(0.4) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            .background(editingID == label.id ? surfaceHighlight.opacity(0.4) : .clear, in: RoundedRectangle(cornerRadius: 6))
                     }
                     if store.labels.isEmpty { Text("Add your first label below.").font(.system(size: 11)).foregroundColor(muted).padding(.vertical, 20) }
                 }
             }
             Text(editingID == nil ? "New label" : "Edit label").font(.system(size: 10, weight: .medium)).foregroundColor(muted)
             TextField("Label name", text: $name).textFieldStyle(.plain).bistTextEntry(focused: $nameFocused).font(.system(size: 12)).padding(9)
-                .background(.white.opacity(0.45), in: RoundedRectangle(cornerRadius: 8)).onSubmit(save).accessibilityLabel("Label name")
+                .background(surfaceHighlight.opacity(0.45), in: RoundedRectangle(cornerRadius: 8)).onSubmit(save).accessibilityLabel("Label name")
             HStack(spacing: 8) {
                 ForEach(TaskLabelColor.allCases) { candidate in
                     BistButton(focusRadius: 12) { color = candidate } label: {
                         Circle().fill(candidate.tint).frame(width: 17, height: 17)
-                            .overlay { if color == candidate { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundColor(.white) } }
+                            .overlay { if color == candidate { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundColor(actionInk) } }
                             .frame(width: 25, height: 25).contentShape(Circle())
                     }.buttonStyle(.plain).accessibilityLabel("\(candidate.rawValue.capitalized) color").accessibilityValue(color == candidate ? "Selected" : "Not selected")
                 }

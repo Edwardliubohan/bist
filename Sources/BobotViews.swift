@@ -46,7 +46,7 @@ struct BobotQuestionView: View {
                     .frame(maxHeight: 140)
                 TextField("Your answer", text: Binding(get: { bobot.questionDrafts[question.id] ?? "" }, set: { bobot.questionDrafts[question.id] = $0 }), axis: .vertical)
                     .lineLimit(3...6).textFieldStyle(.plain).font(.system(size: 12)).bistTextEntry()
-                    .padding(8).background(.white.opacity(0.5), in: RoundedRectangle(cornerRadius: 8)).accessibilityLabel("Answer Bobot")
+                    .padding(8).background(surfaceHighlight.opacity(0.5), in: RoundedRectangle(cornerRadius: 8)).accessibilityLabel("Answer Bobot")
                 if let error = bobot.error { Text(error).font(.system(size: 10)).foregroundColor(.red) }
                 if (bobot.questionDrafts[question.id] ?? "").count > 8000 { Text("Keep your answer under 8,000 characters.").font(.system(size: 10)).foregroundColor(.red) }
                 HStack {

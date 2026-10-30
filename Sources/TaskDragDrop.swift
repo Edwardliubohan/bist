@@ -171,7 +171,7 @@ struct TaskMovePicker: View {
                 }
             }.frame(maxHeight: 190)
         }.font(.system(size: 11)).foregroundColor(ink).tint(accent).padding(14).frame(width: 270)
-            .background(ivory).preferredColorScheme(.light)
+            .background(ivory)
             .onAppear {
                 mounted = true
                 focusContext.setPickerPresented(id: presentationID, presented: true)

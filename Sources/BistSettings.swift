@@ -21,6 +21,12 @@ struct BistSettingsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 10) {
                         heading("Appearance")
+                        Picker("Theme", selection: $state.appearanceMode) {
+                            ForEach(BistAppearance.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }.pickerStyle(.segmented)
+                            .accessibilityLabel("Color theme")
                         HStack {
                             Text("Transparency")
                             Spacer()
@@ -35,7 +41,7 @@ struct BistSettingsView: View {
                         if systemOpaque { note("macOS Reduce Transparency is on.") }
                         Toggle("Reduce motion", isOn: $state.reduced).toggleStyle(.switch)
                         if systemReduced { note("macOS Reduce Motion is on.") }
-                        Button("Reset appearance") { state.transparency = 0.5; state.opaque = false; state.reduced = false }
+                        Button("Reset appearance") { state.resetAppearance() }
                             .buttonStyle(.plain).foregroundColor(accent)
                             .frame(minHeight: 30)
                     }
