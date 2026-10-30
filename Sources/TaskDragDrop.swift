@@ -2,6 +2,51 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Shared by disclosure, hierarchy changes and the destination feedback.
+enum TaskListMotion {
+    static func hierarchy(reduced: Bool) -> Animation? {
+        reduced ? nil : .smooth(duration: 0.28, extraBounce: 0)
+    }
+
+    static func feedback(reduced: Bool) -> Animation? {
+        reduced ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: 0.14)
+    }
+
+    static func reveal(reduced: Bool) -> AnyTransition {
+        reduced ? .identity : .modifier(active: TaskRowReveal(progress: 0), identity: TaskRowReveal(progress: 1))
+    }
+}
+
+struct TaskDragGrip: View {
+    var body: some View {
+        HStack(spacing: 2) {
+            dots
+            dots
+        }.accessibilityElement(children: .ignore)
+    }
+
+    private var dots: some View {
+        VStack(spacing: 2) {
+            ForEach(0..<3) { _ in Circle().frame(width: 2, height: 2) }
+        }
+    }
+}
+
+/// Reveal from the parent down, clipping content as sibling rows make room.
+private struct TaskRowReveal: AnimatableModifier {
+    var progress: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.frame(height: 30, alignment: .top)
+            .frame(height: 30 * max(0, min(1, progress)), alignment: .top)
+            .clipped().opacity(Double(progress))
+    }
+}
+
 @MainActor
 final class TaskDragState: ObservableObject {
     @Published var taskID: UUID?
@@ -66,19 +111,23 @@ struct TaskRowDropDelegate: DropDelegate {
 struct TaskDropIndicator: View {
     let placement: TaskPlacement?
     let rowID: UUID
+    let depth: Int
+    let reducedMotion: Bool
     var body: some View {
         ZStack {
             if placement == .inside(rowID) {
-                RoundedRectangle(cornerRadius: 6).strokeBorder(accent, lineWidth: 1.5)
-                Text("Nest here").font(.system(size: 8, weight: .semibold)).foregroundColor(accent)
-                    .padding(.horizontal, 5).background(ivory, in: Capsule())
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                RoundedRectangle(cornerRadius: 6).fill(accent.opacity(0.09))
+                RoundedRectangle(cornerRadius: 6).strokeBorder(accent.opacity(0.65), lineWidth: 1)
             }
             if placement == .before(rowID) || placement == .after(rowID) {
-                Rectangle().fill(accent).frame(height: 2)
+                Capsule().fill(accent).frame(height: 2)
+                    .overlay(alignment: .leading) { Circle().fill(accent).frame(width: 4, height: 4) }
+                    .padding(.leading, 42 + CGFloat(min(depth, 5)) * 12)
+                    .padding(.trailing, 4)
                     .frame(maxHeight: .infinity, alignment: placement == .before(rowID) ? .top : .bottom)
             }
-        }.allowsHitTesting(false).accessibilityHidden(true)
+        }.animation(TaskListMotion.feedback(reduced: reducedMotion), value: placement)
+            .allowsHitTesting(false).accessibilityHidden(true)
     }
 }
 

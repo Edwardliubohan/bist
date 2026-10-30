@@ -57,8 +57,8 @@ struct ChecklistPane: View {
                         Spacer(minLength: 0)
                     }.padding(.horizontal, 20).padding(.bottom, 7)
                     HStack(spacing: 0) {
-                        Text("Me").frame(width: 26).padding(.leading, 14).accessibilityLabel("My completion column")
-                        Text("Task").padding(.leading, 12)
+                        Text("Me").frame(width: 26).padding(.leading, 16).accessibilityLabel("My completion column")
+                        Text("Task").padding(.leading, 22)
                         Spacer()
                         Text("Agent").frame(width: 32).accessibilityLabel("Agent completion column")
                     }.font(.system(size: 8, weight: .medium)).foregroundColor(muted).padding(.horizontal, 16).padding(.bottom, 5)
@@ -81,7 +81,10 @@ struct ChecklistPane: View {
                                         .font(.system(size: 11)).foregroundColor(muted).padding(12)
                                 }
                             }
-                        }.padding(.horizontal, 16).padding(.bottom, 12)
+                        }
+                        .animation(TaskListMotion.hierarchy(reduced: reducedMotion), value:
+                            TaskHorizon.allCases.flatMap { entries(for: $0, at: now).map { "\($0.id)-\($0.depth)" } })
+                        .padding(.horizontal, 16).padding(.bottom, 12)
                     }
                     }
                     TaskUndoLine(store: store).padding(.horizontal, 19).padding(.bottom, 7)
@@ -122,6 +125,7 @@ struct ChecklistPane: View {
             }.padding(.horizontal, 6).padding(.top, 5).frame(height: 30)
                 .contentShape(Rectangle())
                 .background(drag.target == .list(horizon) ? accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                .animation(TaskListMotion.feedback(reduced: reducedMotion), value: drag.target == .list(horizon))
                 .onDrop(of: [.text], delegate: TaskRowDropDelegate(rowID: nil, horizon: horizon, store: store, drag: drag, didMove: revealMovedParent))
             ForEach(rows) { entry in
                 ChecklistRow(entry: entry, labels: store.labels.filter { entry.task.labelIDs.contains($0.id) },
@@ -132,9 +136,10 @@ struct ChecklistPane: View {
                                  if collapsedParents.contains(entry.id) { collapsedParents.remove(entry.id) }
                                  else { collapsedParents.insert(entry.id) }
                              }, open: { openTask(entry.id) })
-                .overlay(TaskDropIndicator(placement: drag.target, rowID: entry.id))
+                .overlay(TaskDropIndicator(placement: drag.target, rowID: entry.id, depth: entry.depth, reducedMotion: reducedMotion))
                 .onDrop(of: [.text], delegate: TaskRowDropDelegate(rowID: entry.id, horizon: horizon, store: store, drag: drag, didMove: revealMovedParent))
                 .id(entry.id)
+                .transition(TaskListMotion.reveal(reduced: reducedMotion))
                 .environment(\.bistFocusReveal, { scrollProxy.scrollTo(entry.id, anchor: .center) })
                 .contextMenu {
                     Button("Open details") { openTask(entry.id) }
@@ -529,12 +534,21 @@ private struct ChecklistRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Image(systemName: "line.3.horizontal").font(.system(size: 8, weight: .medium))
-                .foregroundColor(muted.opacity(hovered ? 1 : 0.5)).frame(width: 14, height: 30)
+            TaskDragGrip()
+                .foregroundColor(muted.opacity(hovered ? 1 : 0.45)).frame(width: 16, height: 30)
                 .contentShape(Rectangle()).onDrag(dragProvider) {
-                    Label(entry.task.title, systemImage: "line.3.horizontal")
-                        .font(.system(size: 11)).foregroundColor(ink).padding(9)
-                        .background(ivory, in: RoundedRectangle(cornerRadius: 7))
+                    HStack(spacing: 9) {
+                        TaskDragGrip().foregroundColor(accent)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(entry.task.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                            if entry.hasChildren {
+                                Text("With subtasks").font(.system(size: 9)).foregroundColor(muted)
+                            }
+                        }
+                    }.foregroundColor(ink).padding(.horizontal, 12).padding(.vertical, 9)
+                        .frame(maxWidth: 260, alignment: .leading)
+                        .background(ivory, in: RoundedRectangle(cornerRadius: 9))
+                        .shadow(color: ink.opacity(0.14), radius: 8, x: 0, y: 4)
                 }
                 .accessibilityLabel("Drag \(entry.task.title) to move or nest")
             BistButton(focusRadius: 5, action: toggleUser) {
@@ -548,13 +562,15 @@ private struct ChecklistRow: View {
                 .accessibilityLabel("\(entry.task.completed ? "Mark mine unfinished" : "Mark mine done"): \(entry.task.title)")
                 .accessibilityValue(entry.task.completed ? "Done by me" : "Not done by me")
                 .accessibilityHint("Subtasks and agent results stay independent.")
-            Color.clear.frame(width: CGFloat(min(entry.depth, 5)) * 10)
+            Color.clear.frame(width: CGFloat(min(entry.depth, 5)) * 12)
             if entry.hasChildren {
                 BistButton(focusRadius: 4, action: toggleChildren) {
-                    Image(systemName: collapsed ? "chevron.right" : "chevron.down").font(.system(size: 7, weight: .semibold))
-                        .foregroundColor(muted).frame(width: 12, height: 26).contentShape(Rectangle())
+                    Image(systemName: "chevron.right").font(.system(size: 8, weight: .medium))
+                        .rotationEffect(.degrees(collapsed ? 0 : 90))
+                        .foregroundColor(muted).frame(width: 22, height: 26).contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel("\(collapsed ? "Expand" : "Collapse") subtasks of \(entry.task.title)")
-            } else { Color.clear.frame(width: 12) }
+                    .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+            } else { Color.clear.frame(width: 22) }
             BistButton(focusRadius: 4, action: open) {
                 Text(entry.task.title).font(.system(size: 11, weight: .regular))
                     .foregroundColor(entry.task.completed ? muted : ink).strikethrough(entry.task.completed, color: muted.opacity(0.6))
@@ -576,6 +592,9 @@ private struct ChecklistRow: View {
         .background(labels.first.map { $0.color.tint.opacity(hovered ? 0.22 : 0.15) } ?? (hovered ? .white.opacity(0.36) : .clear), in: RoundedRectangle(cornerRadius: 6))
         .overlay(alignment: .bottom) { Rectangle().fill(ink.opacity(0.045)).frame(height: 0.5).padding(.leading, 38).allowsHitTesting(false) }
         .onHover { hovered = $0 }
+        .animation(TaskListMotion.hierarchy(reduced: reducedMotion), value: collapsed)
+        .animation(TaskListMotion.hierarchy(reduced: reducedMotion), value: entry.depth)
+        .animation(TaskListMotion.feedback(reduced: reducedMotion), value: hovered)
         .animation(reducedMotion ? nil : .easeOut(duration: 0.14), value: entry.task.completed)
     }
 }
