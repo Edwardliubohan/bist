@@ -154,6 +154,5 @@ struct SessionPreviewContent: View {
             .foregroundStyle(ink).background(ivory)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(hairline, lineWidth: 1))
-            .preferredColorScheme(.light)
     }
 }

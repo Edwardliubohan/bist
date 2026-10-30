@@ -192,7 +192,6 @@ private struct HoverTaskPreview: View {
             if aboveAnchor { Color.clear.frame(height: CornerLayout.previewGap) }
         }
         .foregroundStyle(ink)
-        .preferredColorScheme(.light)
         .background(CornerHoverRegion(onHover: onHover))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Read-only outstanding task preview")
@@ -219,8 +218,7 @@ private struct HoverTaskPreview: View {
 
     private func dotColor(_ task: TaskItem) -> Color {
         if let label = store.labels.first(where: { task.labelIDs.contains($0.id) }) {
-            let value = UInt64(label.color.hex.dropFirst(), radix: 16) ?? 0x7567B7
-            return Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
+            return label.color.tint
         }
         return accent
     }

@@ -83,7 +83,7 @@ struct AgentResultsView: View {
                     .opacity(reviewed.contains(result.id) && mismatch == nil ? 1 : 0.5)
             }
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white.opacity(0.30), in: RoundedRectangle(cornerRadius: 10))
+            .background(surfaceHighlight.opacity(0.30), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func matchingCompletion(_ result: AgentResultProposal, task: TaskItem?) -> Bool {

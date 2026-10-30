@@ -30,7 +30,6 @@ final class PanelTransitionSurface: NSView {
         content.layer?.mask = clip
         content.autoresizingMask = [.width, .height]
         border.fillColor = NSColor.clear.cgColor
-        border.strokeColor = NSColor.white.withAlphaComponent(0.72).cgColor
         border.lineWidth = 1
         // Keep the backdrop outside NSHostingView's compositing hierarchy so it
         // samples the desktop rather than an opaque SwiftUI backing surface.
@@ -43,7 +42,6 @@ final class PanelTransitionSurface: NSView {
         // Native materials carry their own tint. Leave a genuine transparent
         // component too, rather than relying on the system's material opacity.
         material.alphaValue = 0.8
-        material.appearance = NSAppearance(named: .aqua)
         material.autoresizingMask = [.width, .height]
         tint.wantsLayer = true
         tint.autoresizingMask = [.width, .height]
@@ -65,8 +63,23 @@ final class PanelTransitionSurface: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         material.isHidden = !isGlassEnabled
-        tint.layer?.backgroundColor = NSColor(srgbRed: 0.99, green: 0.97, blue: 0.94, alpha: tintOpacity).cgColor
+        refreshColors()
         CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshColors()
+    }
+
+    private func refreshColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            tint.layer?.backgroundColor = BistPalette.surface.withAlphaComponent(tintOpacity).cgColor
+            border.strokeColor = BistPalette.border.withAlphaComponent(0.72).cgColor
+            CATransaction.commit()
+        }
     }
 
     var presentationRect: CGRect {
@@ -80,6 +93,7 @@ final class PanelTransitionSurface: NSView {
 
     #if BIST_TESTING
     var nativeBackdrop: NSVisualEffectView { material }
+    var nativeTint: CGColor? { tint.layer?.backgroundColor }
     var hasAnimatedPresentation: Bool { clip.presentation()?.path != nil && clip.animation(forKey: "panel.clip") != nil }
     #endif
 

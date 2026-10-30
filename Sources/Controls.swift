@@ -25,13 +25,16 @@ private struct BistFocusRevealKey: EnvironmentKey { static let defaultValue: () 
 extension EnvironmentValues { var bistReduced: Bool { get { self[BistReducedKey.self] } set { self[BistReducedKey.self] = newValue } } }
 extension EnvironmentValues { var bistFocusReveal: () -> Void { get { self[BistFocusRevealKey.self] } set { self[BistFocusRevealKey.self] = newValue } } }
 
-let ink = Color(red: 0.16, green: 0.12, blue: 0.09)
-let muted = Color(red: 0.34, green: 0.28, blue: 0.23)
-let accent = Color(red: 0.64, green: 0.24, blue: 0.055)
+let ink = BistPalette.color((0.16, 0.12, 0.09), (0.94, 0.90, 0.84))
+let muted = BistPalette.color((0.34, 0.28, 0.23), (0.73, 0.67, 0.60))
+let accent = BistPalette.color((0.64, 0.24, 0.055), (1, 0.61, 0.33))
 let cornerOrange = Color(red: 0.94, green: 0.36, blue: 0.12)
-let ivory = Color(red: 0.99, green: 0.97, blue: 0.94)
+let ivory = Color(nsColor: BistPalette.surface)
 let faint = muted.opacity(0.55)
-let fieldFill = Color.white.opacity(0.55)
+let surfaceHighlight = BistPalette.color((1, 1, 1), (0.32, 0.28, 0.25))
+let surfaceBorder = Color(nsColor: BistPalette.border)
+let actionInk = BistPalette.color((1, 1, 1), (0.16, 0.12, 0.09))
+let fieldFill = surfaceHighlight.opacity(0.55)
 let hairline = ink.opacity(0.12)
 let danger = Color.red
 
@@ -160,10 +163,10 @@ struct TactileStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundColor(prominent ? .white : ink)
+            .foregroundColor(prominent ? actionInk : ink)
             .padding(.horizontal, compact ? 8 : 12).padding(.vertical, compact ? 7 : 9)
-            .background(RoundedRectangle(cornerRadius: compact ? 9 : 12, style: .continuous).fill(prominent ? AnyShapeStyle(LinearGradient(colors: [Color(red: 0.73, green: 0.29, blue: 0.08), accent], startPoint: .top, endPoint: .bottom)) : AnyShapeStyle(Color.white.opacity(configuration.isPressed ? 0.35 : 0.62))))
-            .overlay(RoundedRectangle(cornerRadius: compact ? 9 : 12, style: .continuous).strokeBorder(.white.opacity(prominent ? 0.25 : 0.8), lineWidth: 0.8))
+            .background(RoundedRectangle(cornerRadius: compact ? 9 : 12, style: .continuous).fill(prominent ? AnyShapeStyle(LinearGradient(colors: [BistPalette.color((0.73, 0.29, 0.08), (0.98, 0.55, 0.27)), accent], startPoint: .top, endPoint: .bottom)) : AnyShapeStyle(surfaceHighlight.opacity(configuration.isPressed ? 0.35 : 0.62))))
+            .overlay(RoundedRectangle(cornerRadius: compact ? 9 : 12, style: .continuous).strokeBorder(surfaceBorder.opacity(prominent ? 0.25 : 0.8), lineWidth: 0.8))
             .shadow(color: (prominent ? accent : .black).opacity(configuration.isPressed ? 0.03 : 0.10), radius: configuration.isPressed ? 1 : 3, x: 0, y: configuration.isPressed ? 0 : 2)
             .scaleEffect(configuration.isPressed && !(reduce || localReduce) ? 0.97 : 1)
             .animation(reduce || localReduce ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)

@@ -31,6 +31,15 @@ final class PanelState: ObservableObject {
     @Published var showSettings = false
     @Published var notice: String?
     private let preferences: UserDefaults
+    @Published var appearanceMode: BistAppearance {
+        didSet {
+            preferences.set(appearanceMode.rawValue, forKey: "panelAppearance")
+            NSApp.appearance = appearanceMode.nativeAppearance
+        }
+    }
+    func resetAppearance() {
+        appearanceMode = .system; transparency = 0.5; opaque = false; reduced = false
+    }
     @Published var transparency: Double {
         didSet { preferences.set(transparency, forKey: "panelTransparency") }
     }
@@ -42,6 +51,7 @@ final class PanelState: ObservableObject {
     }
     init(preferences: UserDefaults = .standard) {
         self.preferences = preferences
+        appearanceMode = BistAppearance(rawValue: preferences.string(forKey: "panelAppearance") ?? "") ?? .system
         transparency = preferences.object(forKey: "panelTransparency")
             .map { _ in min(1, max(0, preferences.double(forKey: "panelTransparency"))) } ?? 0.5
         opaque = ProcessInfo.processInfo.arguments.contains("--opaque") || preferences.bool(forKey: "opaquePanel")
@@ -127,7 +137,9 @@ final class FloatingPanel: NSPanel {
         guard isKeyWindow, NSApp.keyWindow === self, firstResponder === editor,
               editor.window === self, editor.isEditable, editor.shouldDrawInsertionPoint,
               editor.selectedRange().length == 0, !editor.hasMarkedText() else { return }
-        editor.insertionPointColor = NSColor(accent)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            editor.insertionPointColor = NSColor(accent)
+        }
         editor.updateInsertionPointStateAndRestartTimer(true)
     }
 }
@@ -252,6 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = state.appearanceMode.nativeAppearance
         let args = ProcessInfo.processInfo.arguments
         store = AppStore(demo: args.contains("--demo"))
         let directory = store.directory
@@ -271,7 +284,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         panel = FloatingPanel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
         panel.title = "bist"
-        panel.appearance = NSAppearance(named: .aqua)
         panel.isFloatingPanel = true; panel.level = .floating
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         panel.hidesOnDeactivate = false; panel.becomesKeyOnlyIfNeeded = false
@@ -539,7 +551,6 @@ struct BistView: View {
         }
         .overlay(alignment: .topTrailing) { collapsed.padding(2) }
         .foregroundColor(ink).font(.system(size: 13))
-        .preferredColorScheme(.light)
         .tint(accent)
         .coordinateSpace(name: "bistPanel")
         .onPreferenceChange(BistInteractionRegionsKey.self) { state.focusContext.interactionRegions = $0 }
@@ -776,7 +787,7 @@ struct InboxView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     if loaded && proposals.isEmpty && error == nil { Text("No proposed tasks yet.").foregroundColor(muted).padding(.top, 20) }
                     ForEach(proposals) { p in
-                        VStack(alignment: .leading, spacing: 5) { Text(p.title).fontWeight(.medium); Text(p.nextAction).font(.system(size: 11)).foregroundColor(muted); Text("Source: \(p.source)").font(.system(size: 10)).foregroundColor(muted) }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+                        VStack(alignment: .leading, spacing: 5) { Text(p.title).fontWeight(.medium); Text(p.nextAction).font(.system(size: 11)).foregroundColor(muted); Text("Source: \(p.source)").font(.system(size: 10)).foregroundColor(muted) }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(surfaceHighlight.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
                     }
                 }
             }

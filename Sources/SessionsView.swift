@@ -706,12 +706,12 @@ extension LocalAgentSession {
 }
 
 extension SessionSource {
-    /// Darkened brand hues, readable as 11 pt text on ivory and distinct from the Needs you accent.
+    /// Provider hues keep their identity with readable dark variants.
     var tint: Color {
         switch self {
-        case .claude: return Color(red: 0.74, green: 0.36, blue: 0.20)
-        case .chat: return Color(red: 0.05, green: 0.49, blue: 0.38)
-        case .bobot: return Color(red: 0.35, green: 0.33, blue: 0.80)
+        case .claude: return BistPalette.color((0.74, 0.36, 0.20), (0.96, 0.64, 0.45))
+        case .chat: return BistPalette.color((0.05, 0.49, 0.38), (0.42, 0.80, 0.66))
+        case .bobot: return BistPalette.color((0.35, 0.33, 0.80), (0.73, 0.69, 1))
         }
     }
 }
