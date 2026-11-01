@@ -253,7 +253,11 @@ final class NoteStore: ObservableObject {
 
     private func decode(_ bytes: Data?) throws -> String? {
         guard let bytes else { return nil }
-        guard let decoded = String(data: bytes, encoding: .utf8) else {
+        // Pin BOM handling independently of Foundation's decoder. Strip one
+        // encoding marker and use Swift's codec with a lossless check.
+        let payload = bytes.starts(with: [0xef, 0xbb, 0xbf]) ? bytes.dropFirst(3) : bytes
+        let decoded = String(decoding: payload, as: UTF8.self)
+        guard payload.elementsEqual(decoded.utf8) else {
             throw CocoaError(.fileReadInapplicableStringEncoding)
         }
         return decoded

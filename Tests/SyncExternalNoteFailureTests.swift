@@ -340,7 +340,7 @@ struct SyncExternalNoteFailureTests {
             if route == "readonly" { try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: bomDirectory.path) }
             defer { try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: bomDirectory.path) }
             expect(bomStore.reload() && bomNote.text == expected && bomNote.error == nil && !bomNote.hasUnsavedDraft,
-                   "BOM notes load without a false draft or stale-writer conflict on every recovery route")
+                   "BOM recovery \(route) must match decoded text without a draft or error, actual scalars \(bomNote.text.unicodeScalars.map { $0.value })")
             expect(try Data(contentsOf: bomNote.fileURL) == bomBytes, "projection preserves the physical BOM when the decoded text already matches")
             bomNote.save()
             expect(bomNote.error == nil && bomNote.exportBaselineBytes == bomBytes,
@@ -400,6 +400,37 @@ struct SyncExternalNoteFailureTests {
         expect(literalNote.error == nil && !literalNote.canRetrySave,
                "an exact raw canonical export needs no idle write on read-only storage")
         _ = literalSeedBridge; _ = literalBridge
+
+        let bom = Data([0xef, 0xbb, 0xbf])
+        let codecCases: [(String, Data, String)] = [
+            ("plain", Data("A\u{0}é 📝".utf8), "A\u{0}é 📝"),
+            ("single", bom + Data("Text".utf8), "Text"),
+            ("double", bom + bom + Data("Text".utf8), "\u{feff}Text"),
+            ("empty", bom, "")
+        ]
+        for (name, bytes, expected) in codecCases {
+            let codecDirectory = root.appendingPathComponent("utf8-codec-\(name)")
+            try fm.createDirectory(at: codecDirectory, withIntermediateDirectories: true)
+            let url = codecDirectory.appendingPathComponent("note.txt")
+            try bytes.write(to: url)
+            let codecNote = NoteStore(directory: codecDirectory)
+            let snapshot = try codecNote.readableDiskSnapshot()
+            expect(snapshot.bytes == bytes && snapshot.text == expected && codecNote.text == expected && !codecNote.hasUnsavedDraft,
+                   "UTF8 decoding strips exactly one optional BOM across SDK versions")
+            codecNote.save()
+            expect(try Data(contentsOf: url) == bytes && codecNote.error == nil, "idle codec recovery preserves the exact physical encoding")
+        }
+        for invalid in [Data([0xff]), Data([0xf0, 0x9f]), Data([0xef, 0xbb]), Data([0xed, 0xa0, 0x80]), Data([0xc0, 0xaf])] {
+            let codecDirectory = root.appendingPathComponent("invalid-codec-\(UUID())")
+            try fm.createDirectory(at: codecDirectory, withIntermediateDirectories: true)
+            let url = codecDirectory.appendingPathComponent("note.txt")
+            try invalid.write(to: url)
+            let codecNote = NoteStore(directory: codecDirectory)
+            expect(!codecNote.isReadable && (try? codecNote.readableDiskSnapshot()) == nil,
+                   "strict UTF8 decoding rejects invalid, truncated, surrogate and overlong sequences")
+            codecNote.update("Cannot replace invalid bytes")
+            expect(try Data(contentsOf: url) == invalid && codecNote.error != nil, "invalid encoding never becomes replacement text in a saved file")
+        }
 
         for revert in [false, true] {
             let reloadDirectory = root.appendingPathComponent("healthy-draft-reload-\(revert)")

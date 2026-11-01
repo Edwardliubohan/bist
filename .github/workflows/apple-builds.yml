@@ -28,6 +28,19 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Set the normal-motion native test fixture
+        run: |
+          set -o pipefail
+          defaults write com.apple.universalaccess reduceMotion -bool false
+          mkdir -p build
+          cat > build/check-system-motion.swift <<'SWIFT'
+          import AppKit
+          let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+          print("Effective system Reduce Motion \(reduced)")
+          precondition(!reduced, "Native animation tests require the normal-motion system fixture")
+          SWIFT
+          xcrun swiftc build/check-system-motion.swift -o build/check-system-motion
+          build/check-system-motion 2>&1 | tee build/system-motion.log
       - name: Run the complete native Mac suite
         run: |
           mkdir -p build
@@ -40,6 +53,7 @@ jobs:
           name: mac-regression-evidence
           path: |
             build/mac-tests.log
+            build/system-motion.log
             build/tests/*.png
           retention-days: 7
   native-build:
