@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "${0:A:h}"
 mkdir -p build/bist.app/Contents/MacOS build/bist.app/Contents/Resources build/module-cache
-xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" -target arm64-apple-macosx14.0 Sources/*.swift -o build/bist.app/Contents/MacOS/bist
+xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" -target arm64-apple-macosx14.0 -I Shared/Sources/CSQLite Shared/Sources/BistSync/*.swift Sources/*.swift -lsqlite3 -o build/bist.app/Contents/MacOS/bist
 xcrun swift -module-cache-path "$PWD/build/module-cache" scripts/make-icon.swift build/BrandAssets
 cp build/BrandAssets/bist.icns build/bist.app/Contents/Resources/bist.icns
 cp scripts/bist-bobot.py docs/BOBOT.md build/bist.app/Contents/Resources/
@@ -14,8 +14,8 @@ cat > build/bist.app/Contents/Info.plist <<'PLIST'
 <key>CFBundleName</key><string>bist</string>
 <key>CFBundleDisplayName</key><string>bist</string>
 <key>CFBundleIdentifier</key><string>local.bist.panel</string>
-<key>CFBundleVersion</key><string>1</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleShortVersionString</key><string>0.2.0</string>
 <key>CFBundleExecutable</key><string>bist</string>
 <key>CFBundleIconFile</key><string>bist</string>
 <key>LSUIElement</key><true/>

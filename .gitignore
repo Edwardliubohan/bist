@@ -28,3 +28,6 @@ __pycache__/
 !.env.example
 *.pem
 *.key
+
+# Developer signing overrides
+iOS/Configuration/Local.xcconfig

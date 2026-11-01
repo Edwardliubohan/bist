@@ -1,0 +1,105 @@
+name: Apple builds
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  shared-sync:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test durable sync and offline replicas
+        run: |
+          ./scripts/test-sync-storage.sh
+          ./scripts/test-sync-integration.sh
+          ./iOS/test-phone.sh
+          swift build --package-path Shared
+      - name: Check Xcode project generation
+        run: |
+          python3 iOS/generate-project.py
+          git diff --exit-code -- iOS/Bist.xcodeproj
+  mac-regressions:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set the normal-motion native test fixture
+        run: |
+          set -o pipefail
+          defaults write com.apple.universalaccess reduceMotion -bool false
+          mkdir -p build
+          cat > build/check-system-motion.swift <<'SWIFT'
+          import AppKit
+          let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+          print("Effective system Reduce Motion \(reduced)")
+          precondition(!reduced, "Native animation tests require the normal-motion system fixture")
+          SWIFT
+          xcrun swiftc build/check-system-motion.swift -o build/check-system-motion
+          build/check-system-motion 2>&1 | tee build/system-motion.log
+      - name: Run the complete native Mac suite
+        run: |
+          mkdir -p build
+          set -o pipefail
+          ./test.sh 2>&1 | tee build/mac-tests.log
+      - name: Keep desktop test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-regression-evidence
+          path: |
+            build/mac-tests.log
+            build/system-motion.log
+            build/tests/*.png
+          retention-days: 7
+  native-build:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme: [Bist iPhone, Bist iPhone Cloud, Bist Mac, Bist Mac Cloud]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native app without signing
+        env:
+          BIST_SCHEME: ${{ matrix.scheme }}
+        run: |
+          if [[ "$BIST_SCHEME" == *iPhone* ]]; then
+            BIST_DESTINATION='generic/platform=iOS Simulator'
+          else
+            BIST_DESTINATION='platform=macOS'
+          fi
+          xcodebuild -project iOS/Bist.xcodeproj -scheme "$BIST_SCHEME" \
+            -destination "$BIST_DESTINATION" -derivedDataPath build/xcode \
+            CODE_SIGNING_ALLOWED=NO build
+
+  iphone-ui:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run isolated iPhone task and note journeys
+        run: ./iOS/test-simulator.sh
+      - name: Export iPhone screenshots
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import subprocess
+          for bundle in Path('build').glob('iphone-ui.*/BistPhoneUITests.xcresult'):
+              subprocess.run(['xcrun', 'xcresulttool', 'export', 'attachments',
+                              '--path', str(bundle), '--output-path', str(bundle.parent / 'screenshots')], check=True)
+          PYTHON
+      - name: Keep native test results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-ui-results
+          path: |
+            build/iphone-ui.*/BistPhoneUITests.xcresult
+            build/iphone-ui.*/screenshots
+          retention-days: 7

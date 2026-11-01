@@ -1,0 +1,3 @@
+#include "Base.xcconfig"
+BIST_CLOUDKIT_ENVIRONMENT = Production
+BIST_APS_ENVIRONMENT = production

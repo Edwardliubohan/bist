@@ -1,0 +1,17 @@
+// Local builds need no Apple account or CloudKit entitlement.
+SWIFT_VERSION = 5.0
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+MACOSX_DEPLOYMENT_TARGET = 14.0
+MARKETING_VERSION = 0.2.0
+CURRENT_PROJECT_VERSION = 2
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM =
+BIST_CLOUDKIT_CONTAINER =
+BIST_IPHONE_BUNDLE_ID = local.bist.iphone
+BIST_MAC_BUNDLE_ID = local.bist.panel
+BIST_CLOUDKIT_ENVIRONMENT = Development
+BIST_APS_ENVIRONMENT = development
+SWIFT_INCLUDE_PATHS = $(inherited) $(SRCROOT)/../Shared/Sources/CSQLite
+OTHER_LDFLAGS = $(inherited) -lsqlite3
+ENABLE_USER_SCRIPT_SANDBOXING = YES
+#include? "Local.xcconfig"
