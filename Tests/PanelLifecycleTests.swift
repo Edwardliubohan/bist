@@ -151,11 +151,24 @@ struct PanelLifecycleTests {
 
         // Fractional drag coordinates must be normalized BEFORE opening. Check
         // the actual native hosting-view center, not just the abstract rectangle.
-        delegate.compactOrigin = CGPoint(x: bounds.maxX - 96.23828125, y: bounds.maxY - 260.9296875)
+        // Keep this pinning fixture clear of screen-edge clamping on smaller
+        // displays. The bottom-left scenario below covers deliberate clamping.
+        let fitted = CornerLayout.frame(expanded: true, visibleFrame: bounds)
+        delegate.compactOrigin = CGPoint(
+            x: fitted.maxX - CornerLayout.compactSize.width - 8.23828125,
+            y: fitted.maxY - CornerLayout.compactSize.height - 0.9296875)
         set(false, animated: false)
         let scale = NSScreen.main!.backingScaleFactor
         expect((delegate.panel.frame.minX * scale).rounded() == delegate.panel.frame.minX * scale, "Compact x uses physical pixels")
         expect((delegate.panel.frame.minY * scale).rounded() == delegate.panel.frame.minY * scale, "Compact y uses physical pixels")
+        let compactFixture = delegate.panel.frame
+        let defaultCompact = CornerLayout.frame(expanded: false, visibleFrame: bounds)
+        expect(compactFixture.minX != defaultCompact.minX && compactFixture.minY != defaultCompact.minY,
+               "Fractional pinning fixture must exercise both custom anchor coordinates")
+        let openFixture = CornerLayout.frame(expanded: true, visibleFrame: bounds, compactOrigin: compactFixture.origin)
+        expect(openFixture.maxX == compactFixture.maxX && openFixture.maxY == compactFixture.maxY,
+               "Fractional pinning fixture must not require clamping, bounds \(bounds), compact \(compactFixture), open \(openFixture)")
+        print("Fractional pinning fixture bounds \(bounds), scale \(scale), compact \(compactFixture), open \(openFixture)")
         func markCenter() -> CGPoint {
             let point = CGPoint(x: host.bounds.maxX - 24, y: host.isFlipped ? 24 : host.bounds.maxY - 24)
             return delegate.panel.convertPoint(toScreen: host.convert(point, to: nil))
@@ -163,7 +176,9 @@ struct PanelLifecycleTests {
         let pinned = markCenter()
         for _ in 0..<8 {
             set(true)
-            expect(markCenter() == pinned, "Mark does not jump on opening mouse-up")
+            let openedMark = markCenter()
+            expect(openedMark == pinned,
+                   "Mark does not jump on opening mouse-up, pinned \(pinned), actual \(openedMark), bounds \(bounds), scale \(scale), panel \(delegate.panel.frame), host \(host.frame), host bounds \(host.bounds)")
             pump(0.06)
             let visible = surface.presentationRect.offsetBy(dx: delegate.panel.frame.minX, dy: delegate.panel.frame.minY)
             expect(abs(visible.maxX - 24 - pinned.x) < 0.01 && abs(visible.maxY - 24 - pinned.y) < 0.01, "Visible mask keeps the mark pinned in flight")
