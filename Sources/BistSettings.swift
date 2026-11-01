@@ -66,7 +66,7 @@ struct BistSettingsView: View {
                             settingsAction("Show data folder", symbol: "folder") {
                                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: store.directory.path)
                             }
-                            settingsAction("Reload saved tasks", symbol: "arrow.clockwise") { _ = store.reload() }
+                            settingsAction("Reload saved data", symbol: "arrow.clockwise") { _ = store.reload() }
                             settingsAction("Review local updates", symbol: "tray", action: reviewUpdates)
                             settingsAction("Review agent results", symbol: "checkmark.seal", action: reviewResults)
                             settingsAction(store.tasks.contains(where: \.isSample) ? "Remove sample tasks" : "Load sample tasks", symbol: "square.stack") {

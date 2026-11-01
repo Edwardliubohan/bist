@@ -38,7 +38,7 @@ Each ID is a unique UUID. `createdAt` is an ISO 8601 timestamp with a timezone. 
 
 The Python helper uses a local advisory lock and an atomic file replacement. The app validates before reading and preserves malformed input. When proposals are accepted, it removes only those reviewed IDs, retaining proposals that arrived after the preview. Unknown versions, duplicate IDs, symbolic-link inboxes, malformed dates, and oversized files are rejected.
 
-Do not write directly to `state.json`. After migration it is a compatibility export, and Reload saved tasks reads the authoritative SQLite replica. The inbox accepts task proposals only: it has no command field for completion, deletion, messages, terminal commands, or agent control.
+Do not write directly to `state.json`. After migration it is a compatibility export, and Reload saved data reads the authoritative SQLite replica. The inbox accepts task proposals only: it has no command field for completion, deletion, messages, terminal commands, or agent control.
 
 ## Future proactive integrations
 

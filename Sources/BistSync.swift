@@ -31,6 +31,7 @@ final class BistReplicaBridge {
     // that leaves the currently deleted label invisible.
     private var knownLabelAliases: [UUID: UUID] = [:]
     private var projectedSnapshot: BistSnapshot?
+    private var noteProjectionAllowed = false
     var didChange: (() -> Void)?
 
     init(store: AppStore, note: NoteStore) throws {
@@ -70,12 +71,10 @@ final class BistReplicaBridge {
             projectedLabelIDs = Set(store.labels.map(\.id))
             var mutations: [ReplicaMutation] = TaskLabel.defaults.filter { !projectedLabelIDs.contains($0.id) }.map { .delete(id: Self.labelID($0.id)) }
             mutations += try snapshotMutations(store.currentSnapshot, restoring: false)
-            if note.isReadable && (!note.text.isEmpty || FileManager.default.fileExists(atPath: note.fileURL.path)) {
-                mutations.append(.set(id: "note.main", kind: "note", values: ["text": try Self.encode(note.text)]))
-            }
+            // Notes import separately so a rejected note cannot block task
+            // migration or advance the note's physical-export baseline.
             try database.apply(mutations, metadata: ["migration": Data("1".utf8),
-                                                     "localSnapshot": try Self.encodeSnapshot(store.currentSnapshot),
-                                                     "noteExport": note.isReadable ? note.exportBaselineBytes : nil])
+                                                     "localSnapshot": try Self.encodeSnapshot(store.currentSnapshot)])
         }
         note.didExportText = { [weak self] bytes in
             try? self?.database.setMetadata(bytes, forKey: "noteExport")
@@ -98,29 +97,42 @@ final class BistReplicaBridge {
         note.persistText = { [weak self] text in
             guard let self else { throw ReplicaError.storage("Replica unavailable") }
             try self.database.mutate(recordID: "note.main", kind: "note", values: ["text": try Self.encode(text)])
+            self.noteProjectionAllowed = true
             self.didChange?()
         }
     }
 
     func reload() throws {
-        if !note.isReadable { _ = note.recoverFromDisk() }
         try importDiskNote()
         try project()
     }
 
     private func importDiskNote() throws {
-        guard note.isReadable else { return }
+        // An import failure must keep the external file protected through later
+        // receives too. Only accepted content can become a derived export.
+        noteProjectionAllowed = false
+        var encodedSize = 0
         do {
-            guard let diskText = try note.readableDiskText() else { return }
-            let bytes = Data(diskText.utf8)
-            guard try database.metadata(forKey: "noteExport") != bytes else { return }
+            let snapshot = try note.readableDiskSnapshot()
+            guard let diskText = snapshot.text, let bytes = snapshot.bytes else {
+                noteProjectionAllowed = note.acceptReplicaFile(snapshot, preservingAcceptedText: true) || note.hasUnsavedDraft
+                return
+            }
+            guard try database.metadata(forKey: "noteExport") != bytes else {
+                // These bytes are a proven export. Trust only that snapshot,
+                // without rereading and trusting a different external file.
+                noteProjectionAllowed = note.acceptReplicaFile(snapshot, preservingAcceptedText: true) || note.hasUnsavedDraft
+                return
+            }
             // A readable external edit is a real local revision. Remember the
             // old canonical text in recovery before adopting the file.
-            try database.apply([.set(id: "note.main", kind: "note", values: ["text": try Self.encode(diskText)])],
+            let encoded = try Self.encode(diskText)
+            encodedSize = encoded.count
+            try database.apply([.set(id: "note.main", kind: "note", values: ["text": encoded])],
                                metadata: ["noteExport": bytes])
-            if !note.hasUnsavedDraft { _ = note.recoverFromDisk(expectedText: diskText) }
+            noteProjectionAllowed = note.acceptReplicaFile(snapshot) || note.hasUnsavedDraft
         } catch {
-            note.reportReplicaFailure(error)
+            note.reportReplicaFailure(error, exceedsSyncLimit: encodedSize > 16 * 1024 * 1024)
         }
     }
 
@@ -310,7 +322,7 @@ final class BistReplicaBridge {
         projectedSnapshot = value
         projectedTaskIDs = Set(tasks.filter { !$0.isSample }.map(\.id))
         projectedLabelIDs = Set(labels.map(\.id))
-        if let record = live.first(where: { $0.id == "note.main" }) {
+        if noteProjectionAllowed, let record = live.first(where: { $0.id == "note.main" }) {
             let text: String = try Self.field(record, "text")
             _ = try note.applyReplicaText(text)
         }
@@ -441,7 +453,6 @@ final class BistSyncCoordinator: ObservableObject {
             // The legacy reader is used only while authority has not attached.
             // No user action can run between this synchronous read and attach.
             guard store.reloadLegacySnapshot() else { throw ReplicaError.storage("Repair the local task file and retry") }
-            if !note.isReadable { _ = note.recoverFromDisk() }
             try attachLocalStorage()
         }
         error = nil

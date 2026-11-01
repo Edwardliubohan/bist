@@ -23,6 +23,25 @@ jobs:
         run: |
           python3 iOS/generate-project.py
           git diff --exit-code -- iOS/Bist.xcodeproj
+  mac-regressions:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the complete native Mac suite
+        run: |
+          mkdir -p build
+          set -o pipefail
+          ./test.sh 2>&1 | tee build/mac-tests.log
+      - name: Keep desktop test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-regression-evidence
+          path: |
+            build/mac-tests.log
+            build/tests/*.png
+          retention-days: 7
   native-build:
     runs-on: macos-15
     strategy:

@@ -456,15 +456,17 @@ struct PhoneSettingsView: View {
                          : "This build saves locally. Install a build with iCloud enabled to connect your Mac and iPhone.")
                 }
                 if !sync.noteVersions.isEmpty {
-                    Section("Recovered note versions") {
-                        ForEach(Array(sync.noteVersions.enumerated()), id: \.offset) { item in
-                            NavigationLink("Note version \(item.offset + 1)") { PhoneNoteVersion(sync: sync, text: item.element) }
+                    Section {
+                        DisclosureGroup("Saved note versions") {
+                            ForEach(Array(sync.noteVersions.enumerated()), id: \.offset) { item in
+                                NavigationLink("Note version \(item.offset + 1)") { PhoneNoteVersion(sync: sync, text: item.element) }
+                            }
                         }
                     }
                 }
                 Section {
                     Button("Manage tags") { showTags = true }.frame(minHeight: 44)
-                    Button("Reload saved tasks") { _ = store.reload() }.frame(minHeight: 44)
+                    Button("Reload saved data") { _ = store.reload() }.frame(minHeight: 44)
                     if let error = store.storeError { Text(error).foregroundStyle(.red) }
                 } header: { Text("Local data") } footer: {
                     Text("Tasks and notes work offline. Agent sessions stay on the Mac. Syncing a task does not run an agent.")

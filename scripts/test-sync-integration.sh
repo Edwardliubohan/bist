@@ -26,7 +26,7 @@ xcrun swiftc -I Shared/Sources/CSQLite -module-cache-path "$PWD/build/module-cac
   Tests/CloudKitPolicyTests.swift -lsqlite3 -o build/tests/cloudkit-policy
 build/tests/cloudkit-policy
 
-for BIST_REVIEW_SUITE in SyncReviewTests SyncPersistenceReviewTests CloudKitStateTests SyncOrderTests SyncProjectionExportTests; do
+for BIST_REVIEW_SUITE in SyncReviewTests SyncPersistenceReviewTests CloudKitStateTests SyncOrderTests SyncProjectionExportTests SyncExternalNoteFailureTests; do
   xcrun swiftc -whole-module-optimization -I Shared/Sources/CSQLite -module-cache-path "$PWD/build/module-cache" \
     Shared/Sources/BistSync/*.swift Sources/BistCore.swift Sources/LocalInbox.swift \
     Sources/NoteStore.swift Sources/BistSync.swift Sources/CloudKitSync.swift \
