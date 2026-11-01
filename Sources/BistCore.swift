@@ -5,12 +5,17 @@ import Darwin
 /// One location for Finder launches, run.sh, bookmarks, inboxes, and panel position.
 enum BistDataLocation {
     static func directory(demo: Bool = false, environment: [String: String] = ProcessInfo.processInfo.environment,
-                          home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+                          home: URL? = nil) -> URL {
         if let override = environment["BIST_DATA_DIR"] {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
-        return home.appendingPathComponent("Library/Application Support", isDirectory: true)
+        #if os(iOS)
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(demo ? "bist-demo" : "bist", isDirectory: true)
+        #else
+        return (home ?? FileManager.default.homeDirectoryForCurrentUser).appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent(demo ? "bist-demo" : "bist", isDirectory: true)
+        #endif
     }
 
     static func legacyDirectory(demo: Bool) -> URL {
@@ -244,7 +249,7 @@ extension BistSnapshot {
 
 /// Accept the original whole-second ISO 8601 format and retain fractional
 /// seconds for new writes, so rapid completions keep their order after restart.
-private enum BistDateCoding {
+enum BistDateCoding {
     private static let secondsFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
@@ -327,6 +332,13 @@ final class AppStore: ObservableObject {
     private let legacyDirectory: URL?
     private let preparesDefaultDirectory: Bool
     private var snapshot: BistSnapshot { BistSnapshot(tasks: tasks, sessions: sessions, labels: labels) }
+    var currentSnapshot: BistSnapshot { snapshot }
+    /// Installed by the shared replica after migration. SQLite becomes the
+    /// authority and this file remains a readable local compatibility export.
+    var persistSnapshot: ((BistSnapshot, Bool) throws -> Void)?
+    /// The replica owns reload after migration. Compatibility exports never
+    /// replace its canonical data through the ordinary Reload action.
+    var reloadPersistedSnapshot: (() throws -> Void)?
 
     init(directory: URL? = nil, demo: Bool = false, legacyDirectory: URL? = nil) {
         self.directory = directory ?? BistDataLocation.directory(demo: demo)
@@ -354,10 +366,29 @@ final class AppStore: ObservableObject {
         }
     }
 
-    /// Explicit reload, for an approved local file update. No watcher or background
-    /// sync is installed. An invalid file is preserved and blocks further writes.
+    /// Reload the authoritative replica after migration. Before migration the
+    /// legacy file remains available for explicit repair and reload.
     @discardableResult
     func reload() -> Bool {
+        if let reloadPersistedSnapshot {
+            do {
+                try reloadPersistedSnapshot()
+                blockedByUnreadableStore = false
+                storeError = nil
+                return true
+            } catch {
+                blockedByUnreadableStore = true
+                storeError = "Couldn’t reload saved tasks. Your current tasks are preserved. Repair local storage, then reload to retry."
+                return false
+            }
+        }
+        return reloadLegacySnapshot()
+    }
+
+    /// Bootstrap and explicit repair only, before the replica is ready. The
+    /// caller restores the authoritative reload hook after repairing migration.
+    @discardableResult
+    func reloadLegacySnapshot() -> Bool {
         if preparesDefaultDirectory {
             do { try BistDataLocation.prepare(directory, legacy: legacyDirectory) }
             catch {
@@ -446,7 +477,7 @@ final class AppStore: ObservableObject {
             storeError = nil
             return true
         }
-        return commit(label: "Local updates added") { $0.tasks += additions }
+        return commit(label: "Local updates added", restoring: true) { $0.tasks += additions }
     }
 
     @discardableResult
@@ -741,7 +772,7 @@ final class AppStore: ObservableObject {
     @discardableResult
     func undo() -> Bool {
         guard let entry = undoEntries.last, !blockedByUnreadableStore else { return false }
-        guard write(entry.snapshot) else { return false }
+        guard write(entry.snapshot, restoring: true) else { return false }
         tasks = entry.snapshot.tasks; sessions = entry.snapshot.sessions; labels = entry.snapshot.labels
         undoEntries.removeLast(); canUndo = !undoEntries.isEmpty
         lastActionLabel = "Undone"
@@ -836,13 +867,13 @@ final class AppStore: ObservableObject {
             evidence.reviewedAt >= evidence.observedAt.addingTimeInterval(-tolerance)
     }
 
-    private func commit(label: String, mutation: (inout BistSnapshot) -> Void) -> Bool {
+    private func commit(label: String, restoring: Bool = false, mutation: (inout BistSnapshot) -> Void) -> Bool {
         guard !blockedByUnreadableStore else { return false }
         let before = snapshot
         var after = before
         mutation(&after)
         guard after != before else { return false }
-        guard write(after) else { return false }
+        guard write(after, restoring: restoring) else { return false }
         undoEntries.append(UndoEntry(snapshot: before, label: label))
         // Keep local undo bounded while retaining enough steps for repeated actions.
         if undoEntries.count > 100 { undoEntries.removeFirst() }
@@ -851,20 +882,52 @@ final class AppStore: ObservableObject {
         return true
     }
 
-    private func write(_ value: BistSnapshot) -> Bool {
+    private func write(_ value: BistSnapshot, restoring: Bool = false) -> Bool {
         do {
             try validate(value)
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .custom { try BistDateCoding.encode($0, to: $1) }
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(value).write(to: stateURL, options: .atomic)
+            if let persistSnapshot {
+                try persistSnapshot(value, restoring)
+                // A failed export must not roll back an accepted database edit.
+                // The authoritative replica re-creates the export on launch.
+                try? exportSnapshot(value)
+                storeError = nil
+                return true
+            }
+            try exportSnapshot(value)
             storeError = nil
             return true
         } catch {
-            storeError = "Couldn’t save your changes. The previous task file is unchanged."
+            storeError = "Couldn’t save your changes. Your saved tasks are preserved. Check the data folder and retry."
             return false
         }
+    }
+
+    private func exportSnapshot(_ value: BistSnapshot) throws {
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .custom { try BistDateCoding.encode($0, to: $1) }
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(value).write(to: stateURL, options: .atomic)
+    }
+
+    func validateReplicaSnapshot(_ value: BistSnapshot) throws { try validate(value) }
+
+    /// Remote changes invalidate whole-snapshot Undo so it cannot erase edits
+    /// made on another device. Inspector drafts remain owned by their editors.
+    func applyReplicaSnapshot(_ value: BistSnapshot) throws {
+        try validate(value)
+        // The replica already accepted this state. Repair its derived export
+        // when possible, including no-op reloads, without gating canonical data.
+        try? exportSnapshot(value)
+        guard value != snapshot else {
+            if blockedByUnreadableStore {
+                blockedByUnreadableStore = false; storeError = nil
+            }
+            return
+        }
+        tasks = value.tasks; sessions = value.sessions; labels = value.labels
+        undoEntries.removeAll(); canUndo = false; lastActionLabel = nil
+        blockedByUnreadableStore = false; storeError = nil
     }
 
     private enum ValidationError: Error { case invalidSnapshot }

@@ -1,0 +1,5 @@
+// Copy to Local.xcconfig and use identifiers registered to your team.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+BIST_IPHONE_BUNDLE_ID = your.registered.iphone.identifier
+BIST_MAC_BUNDLE_ID = your.registered.mac.identifier
+BIST_CLOUDKIT_CONTAINER = iCloud.your.registered.container

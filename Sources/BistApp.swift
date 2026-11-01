@@ -519,6 +519,7 @@ struct BistView: View {
     @StateObject private var localSessions = LocalSessionConnection()
     @StateObject private var sessionBrowser = SessionBrowserState()
     @StateObject private var note: NoteStore
+    @StateObject private var sync: BistSyncCoordinator
     @StateObject private var bobot: BobotStore
     @State private var questionJob: BobotJob?
     @State private var shownQuestions = Set<String>()
@@ -528,7 +529,9 @@ struct BistView: View {
         self.directory = directory
         _sessionBrowser = StateObject(wrappedValue: SessionBrowserState(directory: directory, prepareForWrite: store.prepareForAuxiliaryWrite))
         _bobot = StateObject(wrappedValue: BobotStore(directory: directory, prepare: store.prepareForAuxiliaryWrite))
-        _note = StateObject(wrappedValue: NoteStore(directory: directory, prepareForWrite: store.prepareForAuxiliaryWrite))
+        let noteStore = NoteStore(directory: directory, prepareForWrite: store.prepareForAuxiliaryWrite)
+        _note = StateObject(wrappedValue: noteStore)
+        _sync = StateObject(wrappedValue: BistSyncCoordinator(store: store, note: noteStore))
     }
     @Environment(\.accessibilityReduceTransparency) var reduceTransparency
     @Environment(\.accessibilityReduceMotion) var reduceMotion
@@ -579,6 +582,13 @@ struct BistView: View {
             }
         }
         .onAppear { syncPreviewPreferences(); syncSurfaceAppearance() }
+        .task { await sync.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await sync.refresh() }
+        }
+        .onChange(of: state.expanded) { _, expanded in
+            if expanded { Task { await sync.refresh() } }
+        }
         .onChange(of: store.tasks) { _, tasks in
             checklistViewState.creation.reconcileParent(tasks: tasks)
             let retained = Set(tasks.map(\.id))
@@ -623,7 +633,7 @@ struct BistView: View {
             header
             ZStack {
             if state.showSettings {
-                BistSettingsView(store: store, state: state,
+                BistSettingsView(store: store, state: state, sync: sync,
                     close: { state.showSettings = false },
                     reviewUpdates: { state.showSettings = false; state.showInbox = true },
                     reviewResults: { state.showSettings = false; state.showAgentResults = true })
