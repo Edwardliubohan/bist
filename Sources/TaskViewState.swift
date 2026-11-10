@@ -7,6 +7,7 @@ final class ChecklistViewState: ObservableObject {
     @Published var collapsedParents: Set<UUID> = []
     @Published var showLabels = false
     @Published var showHistory = false
+    @Published var inlineSubtaskParentID: UUID?
     let creation = TaskCreationDraft()
     private(set) var lastConsumedFocusRequest = 0
 
@@ -34,11 +35,7 @@ struct ActiveChecklist {
     func children(of parentID: UUID) -> [TaskItem] {
         let children = Dictionary(grouping: tasks.filter { $0.parentID != nil }, by: { $0.parentID! })
         var visited: Set<UUID> = [parentID]
-        func visible(_ task: TaskItem) -> [TaskItem] {
-            guard visited.insert(task.id).inserted else { return [] }
-            return task.isArchived(at: now) ? (children[task.id] ?? []).flatMap(visible) : [task]
-        }
-        return (children[parentID] ?? []).flatMap(visible)
+        return visibleSiblings(children[parentID] ?? [], children: children, visited: &visited)
     }
 
     func entries(for horizon: TaskHorizon) -> [ChecklistEntry] {
@@ -47,16 +44,11 @@ struct ActiveChecklist {
         var visited = Set<UUID>()
         var result: [ChecklistEntry] = []
         func append(_ task: TaskItem, depth: Int) {
-            guard visited.insert(task.id).inserted else { return }
-            let descendants = children[task.id] ?? []
-            if task.isArchived(at: now) {
-                descendants.forEach { append($0, depth: depth) }
-            } else {
-                result.append(ChecklistEntry(task: task, depth: depth,
-                                             hasChildren: hasActiveDescendants(task.id, seen: [])))
-                if !collapsedParents.contains(task.id) {
-                    descendants.forEach { append($0, depth: depth + 1) }
-                }
+            result.append(ChecklistEntry(task: task, depth: depth,
+                                         hasChildren: hasActiveDescendants(task.id, seen: [])))
+            let descendants = visibleSiblings(children[task.id] ?? [], children: children, visited: &visited)
+            if !collapsedParents.contains(task.id) {
+                descendants.forEach { append($0, depth: depth + 1) }
             }
         }
         func hasActiveDescendants(_ parentID: UUID, seen: Set<UUID>) -> Bool {
@@ -64,9 +56,37 @@ struct ActiveChecklist {
             var next = seen; next.insert(parentID)
             return (children[parentID] ?? []).contains { !$0.isArchived(at: now) || hasActiveDescendants($0.id, seen: next) }
         }
-        tasks.filter { ($0.parentID == nil || !ids.contains($0.parentID!)) && $0.horizon == horizon }
-            .forEach { append($0, depth: 0) }
+        let roots = tasks.filter { ($0.parentID == nil || !ids.contains($0.parentID!)) && $0.horizon == horizon }
+        visibleSiblings(roots, children: children, visited: &visited).forEach { append($0, depth: 0) }
         return result
+    }
+
+    /// Archived tasks hand their place to their visible descendants. The
+    /// resulting sibling group keeps open tasks in stored order, followed by
+    /// completed ones with the most recent completion first.
+    private func visibleSiblings(_ candidates: [TaskItem], children: [UUID: [TaskItem]],
+                                 visited: inout Set<UUID>) -> [TaskItem] {
+        var flattened: [TaskItem] = []
+        func collect(_ task: TaskItem) {
+            guard visited.insert(task.id).inserted else { return }
+            if task.isArchived(at: now) { (children[task.id] ?? []).forEach(collect) }
+            else { flattened.append(task) }
+        }
+        candidates.forEach(collect)
+        return Self.completedLast(flattened)
+    }
+
+    static func completedLast(_ siblings: [TaskItem]) -> [TaskItem] {
+        let open = siblings.filter { !$0.completed }
+        let done = siblings.enumerated().filter { $0.element.completed }.sorted { left, right in
+            switch (left.element.completedAt, right.element.completedAt) {
+            case let (leftDate?, rightDate?) where leftDate != rightDate: return leftDate > rightDate
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return left.offset < right.offset
+            }
+        }.map(\.element)
+        return open + done
     }
 }
 

@@ -62,6 +62,9 @@ build/tests/bobot-flow
 compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/CompletionRetentionTests.swift -o build/tests/completion-retention
 build/tests/completion-retention
 
+compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/InlineSubtaskTests.swift -o build/tests/inline-subtask
+build/tests/inline-subtask
+
 compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/AppearanceTests.swift -o build/tests/appearance
 build/tests/appearance
 

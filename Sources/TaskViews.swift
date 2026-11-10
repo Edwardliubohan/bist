@@ -113,6 +113,7 @@ struct ChecklistPane: View {
         let rows = entries(for: horizon, at: now)
         let visibleIDs = Set(ActiveChecklist(tasks: store.tasks, collapsedParents: collapsedParents, now: now)
             .entries(for: horizon).map(\.id))
+        let inlineAnchor = inlineSubtaskAnchor(in: rows, visibleIDs: visibleIDs)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 5) {
                 Text(horizon.title).font(.system(size: 13, weight: .semibold))
@@ -137,7 +138,7 @@ struct ChecklistPane: View {
                              toggleChildren: {
                                  if collapsedParents.contains(entry.id) { collapsedParents.remove(entry.id) }
                                  else { collapsedParents.insert(entry.id) }
-                             }, open: { openTask(entry.id) })
+                             }, addSubtask: { beginInlineSubtask(under: entry.id) }, open: { openTask(entry.id) })
                 .overlay(TaskDropIndicator(placement: drag.target, rowID: entry.id, depth: entry.depth, reducedMotion: reducedMotion))
                 .onDrop(of: [.text], delegate: TaskRowDropDelegate(rowID: entry.id, horizon: horizon, store: store, drag: drag, didMove: revealMovedParent))
                 .id(entry.id)
@@ -152,12 +153,7 @@ struct ChecklistPane: View {
                     Button(entry.task.completed ? "Mark mine unfinished" : "Mark mine done") {
                         _ = store.setUserCompletion(id: entry.id, completed: !entry.task.completed)
                     }
-                    Button("Add subtask") {
-                        viewState.creation.parentID = entry.id
-                        viewState.creation.horizon = entry.task.horizon
-                        collapsedParents.remove(entry.id)
-                        viewState.creation.requestFocus()
-                    }
+                    Button("Add subtask") { beginInlineSubtask(under: entry.id) }
                     Button("Move to…") { movingTask = entry.task }
                     if entry.task.parentID != nil {
                         Button("Move out one level") {
@@ -189,8 +185,38 @@ struct ChecklistPane: View {
                         Button("Manage labels…") { showLabels = true }
                     }
                 }
+                if let inline = inlineAnchor, inline.anchorID == entry.id, let parentID = viewState.inlineSubtaskParentID {
+                    InlineSubtaskEntry(store: store, parentID: parentID, depth: inline.depth,
+                                       reveal: { scrollProxy.scrollTo("inline-subtask", anchor: .center) },
+                                       close: { viewState.inlineSubtaskParentID = nil })
+                        .id("inline-subtask")
+                        .transition(.opacity)
+                }
             }
         }
+    }
+
+    /// The entry sits after the parent's last open subtask, so a new subtask
+    /// lands directly above it and completed subtasks stay beneath.
+    private func inlineSubtaskAnchor(in rows: [ChecklistEntry], visibleIDs: Set<UUID>) -> (anchorID: UUID, depth: Int)? {
+        guard let parentID = viewState.inlineSubtaskParentID,
+              let parentIndex = rows.firstIndex(where: { $0.id == parentID }),
+              visibleIDs.contains(parentID), !rows[parentIndex].task.completed else { return nil }
+        let parentDepth = rows[parentIndex].depth
+        var anchor = parentIndex
+        var blockOpen = false
+        var index = parentIndex + 1
+        while index < rows.count, rows[index].depth > parentDepth {
+            if rows[index].depth == parentDepth + 1 { blockOpen = !rows[index].task.completed }
+            if blockOpen && visibleIDs.contains(rows[index].id) { anchor = index }
+            index += 1
+        }
+        return (rows[anchor].id, parentDepth + 1)
+    }
+
+    private func beginInlineSubtask(under parentID: UUID) {
+        collapsedParents.remove(parentID)
+        viewState.inlineSubtaskParentID = parentID
     }
 
     private func revealMovedParent(_ id: UUID?) {
@@ -535,6 +561,7 @@ private struct ChecklistRow: View {
     let dragProvider: () -> NSItemProvider
     let toggleUser: () -> Void
     let toggleChildren: () -> Void
+    let addSubtask: () -> Void
     let open: () -> Void
     @State private var hovered = false
 
@@ -567,7 +594,7 @@ private struct ChecklistRow: View {
             }.buttonStyle(.plain)
                 .accessibilityLabel("\(entry.task.completed ? "Mark mine unfinished" : "Mark mine done"): \(entry.task.title)")
                 .accessibilityValue(entry.task.completed ? "Done by me" : "Not done by me")
-                .accessibilityHint("Subtasks and agent results stay independent.")
+                .accessibilityHint("Subtasks stay as they are. Checking every subtask checks this task too.")
             Color.clear.frame(width: CGFloat(min(entry.depth, 5)) * 12)
             if entry.hasChildren {
                 BistButton(focusRadius: 4, action: toggleChildren) {
@@ -592,6 +619,15 @@ private struct ChecklistRow: View {
                     .frame(maxWidth: 78).padding(.leading, 4)
                     .accessibilityLabel("Tags: \(labels.map(\.name).joined(separator: ", "))")
             }
+            if !entry.task.completed {
+                BistButton(focusRadius: 4, action: addSubtask) {
+                    Image(systemName: "plus").font(.system(size: 9, weight: .medium))
+                        .frame(width: 22, height: 26).contentShape(Rectangle())
+                }.buttonStyle(.plain).foregroundColor(muted)
+                    .opacity(hovered ? 1 : 0)
+                    .help("Add subtask")
+                    .accessibilityLabel("Add subtask to \(entry.task.title)")
+            }
             AgentDoneMark(task: entry.task).frame(width: 32, height: 26)
         }
         .frame(height: 30)
@@ -602,6 +638,59 @@ private struct ChecklistRow: View {
         .animation(TaskListMotion.hierarchy(reduced: reducedMotion), value: entry.depth)
         .animation(TaskListMotion.feedback(reduced: reducedMotion), value: hovered)
         .animation(reducedMotion ? nil : .easeOut(duration: 0.14), value: entry.task.completed)
+    }
+}
+
+/// Return adds the subtask and keeps the field open for the next one.
+/// Escape, or leaving the field empty, closes it.
+private struct InlineSubtaskEntry: View {
+    @ObservedObject var store: AppStore
+    let parentID: UUID
+    let depth: Int
+    let reveal: () -> Void
+    let close: () -> Void
+    @State private var title = ""
+    @State private var isMounted = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Color.clear.frame(width: 16 + 26 + CGFloat(min(depth, 5)) * 12)
+            Image(systemName: "plus").font(.system(size: 9)).foregroundColor(accent).frame(width: 16, height: 26)
+            TextField("Add a subtask", text: $title)
+                .textFieldStyle(.plain).font(.system(size: 11))
+                .bistTextEntry(focused: $focused)
+                .onSubmit(submit)
+                .onExitCommand(perform: close)
+                .accessibilityLabel("New subtask name")
+            BistButton(action: close) {
+                Image(systemName: "xmark").font(.system(size: 8)).frame(width: 20, height: 26)
+            }.buttonStyle(.plain).foregroundColor(muted).help("Done adding subtasks").accessibilityLabel("Done adding subtasks")
+        }
+        .frame(height: 30)
+        .padding(.trailing, 8)
+        .background(surfaceHighlight.opacity(0.22), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(accent.opacity(focused ? 0.45 : 0.2), lineWidth: 0.8))
+        .onAppear {
+            isMounted = true
+            DispatchQueue.main.async { if isMounted { focused = true; reveal() } }
+        }
+        .onDisappear { isMounted = false }
+        .onChange(of: focused) {
+            guard !focused else { return }
+            DispatchQueue.main.async {
+                if isMounted && !focused && title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { close() }
+            }
+        }
+    }
+
+    private func submit() {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let parent = store.tasks.first(where: { $0.id == parentID }) else { close(); return }
+        if store.addTask(title: title, parentID: parentID, horizon: parent.horizon) {
+            title = ""
+            DispatchQueue.main.async { if isMounted { focused = true; reveal() } }
+        }
     }
 }
 

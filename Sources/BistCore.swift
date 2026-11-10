@@ -487,14 +487,52 @@ final class AppStore: ObservableObject {
     }
 
     /// User completion never completes descendants or changes agent evidence.
+    /// Checking the last open subtask also checks its parent, repeating upward;
+    /// reopening a subtask reopens its checked ancestors. One commit, one Undo.
     @discardableResult
     func setUserCompletion(id: UUID, completed: Bool) -> Bool {
         guard !blockedByUnreadableStore, let index = tasks.firstIndex(where: { $0.id == id }) else { return false }
         guard tasks[index].completed != completed else { storeError = nil; return true }
-        return commit(label: completed ? "Task completed" : "Task reopened") {
-            $0.tasks[index].completed = completed
-            $0.tasks[index].completedAt = completed ? Date() : nil
+        let cascaded = completed ? ancestorsCompletedByChecking(id) : ancestorsReopenedByUnchecking(id)
+        let label: String
+        switch (completed, cascaded.isEmpty) {
+        case (true, true): label = "Task completed"
+        case (true, false): label = "Subtasks done · parent completed"
+        case (false, true): label = "Task reopened"
+        case (false, false): label = "Task and parent reopened"
         }
+        let affected = cascaded.union([id])
+        let now = Date()
+        return commit(label: label) { value in
+            for position in value.tasks.indices where affected.contains(value.tasks[position].id) {
+                value.tasks[position].completed = completed
+                value.tasks[position].completedAt = completed ? now : nil
+            }
+        }
+    }
+
+    private func ancestorsCompletedByChecking(_ id: UUID) -> Set<UUID> {
+        let byID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+        var done: Set<UUID> = [id]
+        var result = Set<UUID>()
+        var current = byID[id]?.parentID
+        while let parentID = current, let parent = byID[parentID], !parent.completed, !done.contains(parentID) {
+            let children = tasks.filter { $0.parentID == parentID }
+            guard children.allSatisfy({ $0.completed || done.contains($0.id) }) else { break }
+            done.insert(parentID); result.insert(parentID)
+            current = parent.parentID
+        }
+        return result
+    }
+
+    private func ancestorsReopenedByUnchecking(_ id: UUID) -> Set<UUID> {
+        let byID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+        var result = Set<UUID>()
+        var current = byID[id]?.parentID
+        while let parentID = current, let parent = byID[parentID], parent.completed, result.insert(parentID).inserted {
+            current = parent.parentID
+        }
+        return result
     }
 
     @discardableResult
