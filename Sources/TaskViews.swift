@@ -61,6 +61,7 @@ struct ChecklistPane: View {
                         Text("Task").padding(.leading, 22)
                         Spacer()
                         Text("Agent").frame(width: 32).accessibilityLabel("Agent completion column")
+                        Color.clear.frame(width: 22, height: 1)
                     }.font(.system(size: 8, weight: .medium)).foregroundColor(muted).padding(.horizontal, 16).padding(.bottom, 5)
                     Rectangle().fill(ink.opacity(0.07)).frame(height: 0.5).padding(.horizontal, 17)
                     ScrollViewReader { scrollProxy in
@@ -138,7 +139,9 @@ struct ChecklistPane: View {
                              toggleChildren: {
                                  if collapsedParents.contains(entry.id) { collapsedParents.remove(entry.id) }
                                  else { collapsedParents.insert(entry.id) }
-                             }, addSubtask: { beginInlineSubtask(under: entry.id) }, open: { openTask(entry.id) })
+                             }, addSubtask: { beginInlineSubtask(under: entry.id) },
+                             delete: entry.task.parentID == nil ? { _ = store.deleteTask(id: entry.id, includingSubtasks: true) } : nil,
+                             open: { openTask(entry.id) })
                 .overlay(TaskDropIndicator(placement: drag.target, rowID: entry.id, depth: entry.depth, reducedMotion: reducedMotion))
                 .onDrop(of: [.text], delegate: TaskRowDropDelegate(rowID: entry.id, horizon: horizon, store: store, drag: drag, didMove: revealMovedParent))
                 .id(entry.id)
@@ -562,6 +565,7 @@ private struct ChecklistRow: View {
     let toggleUser: () -> Void
     let toggleChildren: () -> Void
     let addSubtask: () -> Void
+    let delete: (() -> Void)?
     let open: () -> Void
     @State private var hovered = false
 
@@ -629,6 +633,16 @@ private struct ChecklistRow: View {
                     .accessibilityLabel("Add subtask to \(entry.task.title)")
             }
             AgentDoneMark(task: entry.task).frame(width: 32, height: 26)
+            if let delete {
+                BistButton(focusRadius: 4, action: delete) {
+                    Image(systemName: "trash").font(.system(size: 9))
+                        .frame(width: 22, height: 26).contentShape(Rectangle())
+                }.buttonStyle(.plain).foregroundColor(muted.opacity(hovered ? 1 : 0.55))
+                    .help(entry.hasChildren ? "Delete task and subtasks" : "Delete task")
+                    .accessibilityLabel("Delete \(entry.task.title)")
+            } else {
+                Color.clear.frame(width: 22, height: 26)
+            }
         }
         .frame(height: 30)
         .background(labels.first.map { $0.color.tint.opacity(hovered ? 0.22 : 0.15) } ?? (hovered ? surfaceHighlight.opacity(0.36) : .clear), in: RoundedRectangle(cornerRadius: 6))

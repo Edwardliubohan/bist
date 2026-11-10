@@ -616,6 +616,18 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// Dragging may promote a subtask to the top level, but never nests a
+    /// top-level task; that takes an explicit parent choice in its details.
+    func canDragTask(id: UUID, to placement: TaskPlacement) -> Bool {
+        guard canMoveTask(id: id, to: placement), let task = tasks.first(where: { $0.id == id }) else { return false }
+        guard task.parentID == nil else { return true }
+        switch placement {
+        case .list: return true
+        case .inside: return false
+        case .before(let target), .after(let target): return tasks.first { $0.id == target }?.parentID == nil
+        }
+    }
+
     /// A single validated commit keeps reparenting, group and ordering atomic,
     /// including on disk failures and undo. Unrelated siblings never move.
     @discardableResult

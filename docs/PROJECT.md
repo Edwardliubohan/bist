@@ -30,12 +30,29 @@ the iPhone build.
   reopened task returns to its original position. Both the Mac and iPhone lists
   use this projection.
 
-Tests: `Tests/TaskViewStateTests.swift` covers the cascade and ordering rules;
+- **Dragging can't nest a main task.** `AppStore.canDragTask` lets a dragged
+  top-level task be reordered among other top-level tasks or moved to a list
+  heading, but never dropped into or beside a subtask. Over a top-level row the
+  whole row acts as a reorder zone. Subtasks can still be dragged anywhere,
+  including out to the top level. Making a main task a subtask is done from its
+  details (parent picker) or the row menu's **Move to…**.
+- **Delete button on main tasks.** Each top-level row ends with a trash button
+  that deletes the task together with its subtasks, undoable from the Undo line.
+
+Tests: `Tests/CoreTests.swift` covers the drag rules;
+`Tests/TaskViewStateTests.swift` covers the cascade and ordering rules;
 `Tests/InlineSubtaskTests.swift` mounts the real checklist and types through the
 native field editor to confirm the inline field adds on Return and stays open.
 
 ### Known test-environment issue
 
-`Tests/InactiveTextEntryTests.swift` fails its "first native caret must
-actually render" precondition on this machine, on unmodified `main` as well,
-so `./test.sh` stops there. The suites after it pass when run individually.
+`Tests/InactiveTextEntryTests.swift` intermittently fails its "first native
+caret must actually render" precondition (also on unmodified `main`), which
+stops `./test.sh` early. Rerunning usually passes.
+
+### Building from the iCloud Desktop
+
+The repo lives in an iCloud-synced folder, which adds Finder metadata to
+`build/bist.app` and makes the final `codesign` in `build.sh` fail. Copy the
+app elsewhere with `ditto --noextattr --norsrc`, run `xattr -cr` and
+`codesign --force --sign -` on the copy, then install that copy.
