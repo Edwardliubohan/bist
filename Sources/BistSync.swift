@@ -396,6 +396,12 @@ final class BistReplicaBridge {
     }
 }
 
+enum BistSyncBackend: String, CaseIterable, Identifiable {
+    case supabase, iCloud
+    var id: String { rawValue }
+    var title: String { self == .supabase ? "Supabase" : "iCloud" }
+}
+
 @MainActor
 final class BistSyncCoordinator: ObservableObject {
     @Published private(set) var status = "Saved on this device"
@@ -406,23 +412,38 @@ final class BistSyncCoordinator: ObservableObject {
     @Published private(set) var isAvailable = false
     @Published private(set) var noteVersions: [String] = []
     @Published private(set) var recoveryRequired = false
+    @Published private(set) var backend: BistSyncBackend = .supabase
+    let supabaseAccount: SupabaseAccountController
     private var bridge: BistReplicaBridge?
     private var transport: CloudKitReplicaTransport?
+    private var supabaseTransport: SupabaseReplicaTransport?
+    private var pollingTask: Task<Void, Never>?
+    private var changeTask: Task<Void, Never>?
+    private var activeSupabaseTask: Task<Void, Error>?
+    private var foreground = true
     private let settingsURL: URL
+    private let backendURL: URL
     private let store: AppStore
     private let note: NoteStore
     private let containerID: String?
+    private let supabaseRelayFactory: (SupabaseConfiguration) -> any SupabaseRelayAPI
     private var refreshGeneration = 0
     private var activeRefreshGeneration: Int?
 
-    init(store: AppStore, note: NoteStore) {
+    init(store: AppStore, note: NoteStore, useBundledSupabaseDefaults: Bool = true,
+         supabaseSessions: any SupabaseSessionStore = KeychainSupabaseSessionStore(),
+         supabaseRelayFactory: @escaping (SupabaseConfiguration) -> any SupabaseRelayAPI = { SupabaseRelayClient(configuration: $0) }) {
         self.store = store; self.note = note
+        self.supabaseRelayFactory = supabaseRelayFactory
         settingsURL = store.directory.appendingPathComponent("sync-enabled")
+        backendURL = store.directory.appendingPathComponent("sync-backend")
+        supabaseAccount = SupabaseAccountController(directory: store.directory, sessions: supabaseSessions, useBundledDefaults: useBundledSupabaseDefaults)
         let configured = Bundle.main.object(forInfoDictionaryKey: "BistCloudKitContainer") as? String ?? ""
         containerID = CloudKitReplicaTransport.configuredContainer(configured)
-        isAvailable = containerID != nil
-        let scope = containerID.map { CloudKitReplicaTransport.scopeIdentifier($0) }
-        enabled = isAvailable && (try? Data(contentsOf: settingsURL)) == scope.map { Data($0.utf8) }
+        let selected = (try? String(contentsOf: backendURL, encoding: .utf8)).flatMap(BistSyncBackend.init(rawValue:))
+        backend = selected ?? (containerID != nil ? .iCloud : .supabase)
+        refreshAvailability()
+        enabled = canEnable && enabledScope != nil && (try? Data(contentsOf: settingsURL)) == enabledScope.map { Data($0.utf8) }
         do { try attachLocalStorage() }
         catch {
             self.error = error.localizedDescription; status = "Local data needs attention"
@@ -436,7 +457,81 @@ final class BistSyncCoordinator: ObservableObject {
             guard let self else { throw ReplicaError.storage("Replica unavailable") }
             try self.retryLocalStorage()
         }
-        if enabled { Task { await refresh() } }
+        supabaseAccount.willChange = { [weak self] in
+            guard self?.backend == .supabase else { return }
+            self?.setEnabled(false)
+            self?.lastSyncedAt = nil
+        }
+        supabaseAccount.didChange = { [weak self] in
+            self?.refreshAvailability(); self?.updateSummary()
+        }
+        if enabled { startPolling(); Task { await refresh() } }
+    }
+
+    deinit { pollingTask?.cancel(); changeTask?.cancel(); activeSupabaseTask?.cancel() }
+
+    var cloudNotificationsEnabled: Bool { backend == .iCloud && enabled && isAvailable }
+    var canEnable: Bool { isAvailable && (backend == .iCloud || supabaseAccount.session != nil) }
+    private var supabaseScope: String? {
+        guard let config = supabaseAccount.configuration, let session = supabaseAccount.session else { return nil }
+        return config.scope + "|" + session.userID.uuidString.lowercased()
+    }
+    private var enabledScope: String? {
+        backend == .iCloud ? containerID.map(CloudKitReplicaTransport.scopeIdentifier) : supabaseScope.map { "supabase|" + $0 }
+    }
+    var accountMergeRequired: Bool {
+        guard backend == .supabase, let bridge, let scope = supabaseScope,
+              let binding = try? bridge.database.metadata(forKey: SupabaseReplicaTransport.bindingKey) else { return false }
+        return binding != Data(scope.utf8)
+    }
+    private func refreshAvailability() {
+        isAvailable = backend == .iCloud ? containerID != nil : supabaseAccount.configuration != nil
+    }
+    func setBackend(_ value: BistSyncBackend) {
+        guard value != backend else { return }
+        setEnabled(false)
+        do {
+            try Data(value.rawValue.utf8).write(to: backendURL, options: .atomic)
+            backend = value; recoveryRequired = false; lastSyncedAt = nil
+            refreshAvailability(); updateSummary()
+        } catch { self.error = error.localizedDescription }
+    }
+    func authorizeSupabaseAccountChange() {
+        guard let bridge, let scope = supabaseScope else { return }
+        do {
+            setEnabled(false)
+            try SupabaseReplicaTransport.authorizeConnection(bridge: bridge, scope: scope)
+            error = nil
+            setEnabled(true)
+        } catch { self.error = error.localizedDescription }
+    }
+    func setForeground(_ value: Bool) {
+        foreground = value
+        if value { startPolling() }
+        else {
+            pollingTask?.cancel(); pollingTask = nil
+            changeTask?.cancel(); changeTask = nil
+            if let operation = activeSupabaseTask {
+                operation.cancel(); activeSupabaseTask = nil
+                // The app can return before URLSession unwinds cancellation.
+                // Retire the old generation so its late cleanup cannot block
+                // or overwrite a fresh foreground exchange.
+                supabaseTransport?.stop(); supabaseTransport = nil
+                refreshGeneration += 1; activeRefreshGeneration = nil
+                error = nil; status = "Waiting to sync"
+                updateSummary()
+            }
+        }
+    }
+    private func startPolling() {
+        guard backend == .supabase, enabled, foreground, pollingTask == nil else { return }
+        pollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 15_000_000_000) } catch { return }
+                guard !Task.isCancelled else { return }
+                await self?.refresh()
+            }
+        }
     }
 
     private func attachLocalStorage() throws {
@@ -460,10 +555,23 @@ final class BistSyncCoordinator: ObservableObject {
     }
 
     func setEnabled(_ value: Bool) {
-        guard value != enabled, !value || isAvailable else { return }
+        guard value != enabled, !value || canEnable else { return }
+        if value && accountMergeRequired { error = SupabaseSyncError.accountChanged.localizedDescription; return }
+        // Disconnection must take effect immediately, even if a full or broken
+        // data directory prevents updating the preference file.
+        if !value {
+            activeSupabaseTask?.cancel(); activeSupabaseTask = nil
+            enabled = false; refreshGeneration += 1; activeRefreshGeneration = nil
+            transport?.stop(); transport = nil; supabaseTransport?.stop(); supabaseTransport = nil
+            pollingTask?.cancel(); pollingTask = nil; changeTask?.cancel(); changeTask = nil
+            status = "Saved on this device"
+        }
         do {
-            if value, let containerID {
-                try Data(CloudKitReplicaTransport.scopeIdentifier(containerID).utf8).write(to: settingsURL, options: .atomic)
+            if value, let scope = enabledScope {
+                // One selected provider owns ACKs. Requeue canonical records
+                // when connecting so a previous backend's ACK cannot omit them.
+                try bridge?.database.enqueueAll()
+                try Data(scope.utf8).write(to: settingsURL, options: .atomic)
             }
             else if FileManager.default.fileExists(atPath: settingsURL.path) { try FileManager.default.removeItem(at: settingsURL) }
             enabled = value
@@ -471,11 +579,14 @@ final class BistSyncCoordinator: ObservableObject {
             activeRefreshGeneration = nil
             error = nil
             if value {
+                if backend == .iCloud {
                 #if os(macOS)
                 NSApplication.shared.registerForRemoteNotifications()
                 #elseif os(iOS)
                 UIApplication.shared.registerForRemoteNotifications()
                 #endif
+                }
+                startPolling()
                 Task { await refresh() }
             }
             else { transport?.stop(); transport = nil; status = "Saved on this device" }
@@ -486,13 +597,16 @@ final class BistSyncCoordinator: ObservableObject {
 
     func recoverCloudData() async {
         guard recoveryRequired else { return }
+        activeSupabaseTask?.cancel(); activeSupabaseTask = nil
         transport?.stop(); transport = nil
+        supabaseTransport?.stop(); supabaseTransport = nil
         refreshGeneration += 1
         activeRefreshGeneration = nil
         await performSync(recovering: true)
     }
 
     private func performSync(recovering: Bool) async {
+        if backend == .supabase { await performSupabaseSync(recovering: recovering); return }
         guard enabled, let bridge, let containerID,
               activeRefreshGeneration != refreshGeneration else { updateSummary(); return }
         let generation = refreshGeneration
@@ -535,6 +649,59 @@ final class BistSyncCoordinator: ObservableObject {
 
     func syncNow() async { await refresh() }
 
+    private func performSupabaseSync(recovering: Bool) async {
+        guard enabled, foreground, let bridge, let configuration = supabaseAccount.configuration, let scope = supabaseScope,
+              activeRefreshGeneration != refreshGeneration else { updateSummary(); return }
+        let generation = refreshGeneration
+        activeRefreshGeneration = generation
+        defer {
+            if activeRefreshGeneration == generation {
+                activeRefreshGeneration = nil; activeSupabaseTask = nil
+            }
+        }
+        do {
+            if supabaseTransport == nil {
+                supabaseTransport = try SupabaseReplicaTransport(bridge: bridge, scope: scope,
+                    relay: supabaseRelayFactory(configuration),
+                    credentials: { [weak self] in
+                        guard let self else { throw CancellationError() }
+                        return try await self.supabaseAccount.accessToken()
+                    }, isCurrent: { [weak self] in
+                        guard let self else { return false }
+                        return self.enabled && self.backend == .supabase && self.refreshGeneration == generation && self.supabaseScope == scope
+                    })
+            }
+            guard let current = supabaseTransport else { return }
+            status = "Syncing with Supabase…"; error = nil
+            if recovering { try current.authorizeRecovery() }
+            let account = supabaseAccount
+            let operation = Task {
+                do { try await current.synchronize() }
+                catch SupabaseSyncError.signInRequired {
+                    try Task.checkCancellation()
+                    _ = try await account.refreshSession()
+                    try Task.checkCancellation()
+                    try await current.synchronize()
+                }
+            }
+            activeSupabaseTask = operation
+            try await withTaskCancellationHandler(operation: { try await operation.value }, onCancel: { operation.cancel() })
+            guard enabled, backend == .supabase, generation == refreshGeneration else { return }
+            lastSyncedAt = Date(); error = nil; recoveryRequired = false
+            status = "Up to date"
+            updateSummary()
+        } catch {
+            guard generation == refreshGeneration, enabled, backend == .supabase else { return }
+            // Leaving the foreground can cancel an in-flight URLSession poll.
+            // That is expected control flow, not an account or sync failure.
+            let cancelled = error is CancellationError || (error as? URLError)?.code == .cancelled
+            self.error = cancelled ? nil : error.localizedDescription
+            recoveryRequired = supabaseTransport?.recoveryRequired ?? false
+            status = recoveryRequired ? "Sync paused" : cancelled ? "Waiting to sync" : "Changes waiting to sync"
+            updateSummary()
+        }
+    }
+
     func restoreNoteVersion(_ text: String) {
         note.update(text)
         updateSummary()
@@ -543,6 +710,19 @@ final class BistSyncCoordinator: ObservableObject {
     private func localChange() {
         updateSummary()
         guard enabled else { return }
+        if backend == .supabase {
+            changeTask?.cancel()
+            changeTask = Task { [weak self] in
+                do { try await Task.sleep(nanoseconds: 1_500_000_000) } catch { return }
+                guard !Task.isCancelled else { return }
+                // Only pending debounce sleeps are replaceable. Remote merges
+                // also call localChange, so release this handle before sync
+                // starts or the sync would cancel itself on the first page.
+                self?.changeTask = nil
+                await self?.refresh()
+            }
+            return
+        }
         do { try transport?.queuePendingChanges() }
         catch { self.error = error.localizedDescription; status = "Sync needs attention" }
     }
@@ -551,7 +731,9 @@ final class BistSyncCoordinator: ObservableObject {
         guard let bridge else { return }
         do {
             pendingCount = try bridge.database.pendingRecords().count
-            recoveryRequired = try CloudKitReplicaTransport.recoveryRequired(in: bridge.database)
+            recoveryRequired = backend == .iCloud
+                ? try CloudKitReplicaTransport.recoveryRequired(in: bridge.database)
+                : supabaseTransport?.recoveryRequired ?? false
             noteVersions = try bridge.noteVersions()
             if !enabled { status = "Saved on this device" }
             else if pendingCount > 0 && error == nil { status = "Changes waiting to sync" }

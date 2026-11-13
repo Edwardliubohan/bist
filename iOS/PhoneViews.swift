@@ -81,6 +81,13 @@ struct PhoneTasksView: View {
                         .disabled(!store.canUndo)
                         .accessibilityLabel("Undo task change")
                 }
+                if captureFocused {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Hide keyboard") { captureFocused = false }
+                            .accessibilityIdentifier("phone.capture.dismiss")
+                    }
+                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { captureBar }
             .sheet(isPresented: $showTags) { PhoneTagsView(store: store) }
@@ -431,12 +438,20 @@ struct PhoneSettingsView: View {
     @ObservedObject var sync: BistSyncCoordinator
     @State private var showTags = false
     @State private var confirmCloudRecovery = false
+    @State private var confirmAccountMerge = false
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle("Sync with iCloud", isOn: Binding(get: { sync.enabled }, set: sync.setEnabled))
-                        .disabled(!sync.isAvailable)
+                    Picker("Sync service", selection: Binding(get: { sync.backend }, set: sync.setBackend)) {
+                        ForEach(BistSyncBackend.allCases) { Text($0.title).tag($0) }
+                    }.accessibilityIdentifier("phone.sync.service")
+                    if sync.backend == .supabase { SupabaseConnectionFields(account: sync.supabaseAccount) }
+                    Toggle(sync.backend == .supabase ? "Sync with Supabase" : "Sync with iCloud", isOn: Binding(get: { sync.enabled }, set: {
+                        if $0 && sync.accountMergeRequired { confirmAccountMerge = true }
+                        else { sync.setEnabled($0) }
+                    }))
+                        .disabled(!sync.enabled && !sync.canEnable)
                         .accessibilityIdentifier("phone.sync.toggle")
                     LabeledContent("Status", value: sync.status)
                     if sync.pendingCount > 0 { LabeledContent("Pending changes", value: "\(sync.pendingCount)") }
@@ -445,13 +460,15 @@ struct PhoneSettingsView: View {
                     }
                     if let error = sync.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
                     if sync.recoveryRequired {
-                        Button("Restore local data to iCloud") { confirmCloudRecovery = true }
+                        Button(sync.backend == .supabase ? "Restore local data to project" : "Restore local data to iCloud") { confirmCloudRecovery = true }
                             .disabled(!sync.enabled || !sync.isAvailable).frame(minHeight: 44)
                     }
                     Button("Sync now") { Task { await sync.syncNow() } }
                         .disabled(!sync.enabled || !sync.isAvailable).frame(minHeight: 44)
-                } header: { Text("iCloud") } footer: {
-                    Text(sync.isAvailable
+                } header: { Text("Sync") } footer: {
+                    Text(sync.backend == .supabase
+                         ? "Use the same Supabase project and email on both devices. Changes save locally first. Sync checks while the app is open."
+                         : sync.isAvailable
                          ? "Use the same iCloud account on your Mac and iPhone. Changes save locally first. Background sync may take time."
                          : "This build saves locally. Install a build with iCloud enabled to connect your Mac and iPhone.")
                 }
@@ -472,12 +489,19 @@ struct PhoneSettingsView: View {
                     Text("Tasks and notes work offline. Agent sessions stay on the Mac. Syncing a task does not run an agent.")
                 }
             }.navigationTitle("Settings")
+                .scrollDismissesKeyboard(.interactively)
                 .sheet(isPresented: $showTags) { PhoneTagsView(store: store) }
-                .confirmationDialog("Restore local data to iCloud?", isPresented: $confirmCloudRecovery, titleVisibility: .visible) {
+                .confirmationDialog(sync.backend == .supabase ? "Restore local data to this project?" : "Restore local data to iCloud?", isPresented: $confirmCloudRecovery, titleVisibility: .visible) {
                     Button("Restore local data") { Task { await sync.recoverCloudData() } }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("A backup is saved on this iPhone, then your current local tasks and note are uploaded to your iCloud account.")
+                    Text("A backup is saved on this iPhone, then your current local tasks and note are uploaded to the selected sync account.")
+                }
+                .confirmationDialog("Combine this device with another sync account?", isPresented: $confirmAccountMerge, titleVisibility: .visible) {
+                    Button("Back up and combine") { sync.authorizeSupabaseAccountChange() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Tasks and notes already on this iPhone will be combined with the account you just signed in to. A local backup is saved first.")
                 }
         }
     }

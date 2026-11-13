@@ -10,9 +10,17 @@ Open `iOS/Bist.xcodeproj`, choose the **Bist iPhone** scheme and an iPhone simul
 
 **Bist Mac** builds the existing Mac panel from the same checkout. It uses the existing Mac data location and remains separate from the phone’s app sandbox. The existing `build.sh` workflow still produces a local Mac build.
 
-## Enable iCloud sync
+## Enable sync
 
-The local schemes intentionally save only on the device. A signed Cloud build on each device is required for iCloud sync.
+### Free Supabase sync
+
+For free sync without CloudKit entitlements, use **Supabase** in Settings. The ordinary **Bist iPhone** and **Bist Mac** schemes support it. Configure a free project using [the Supabase guide](../supabase/README.md), sign in with the same email on each device, then enable **Sync with Supabase**. Local tasks, tags and notes merge with that account. Agent sessions remain on the Mac. This does not remove the seven-day expiry of a free Apple signing profile.
+
+Project details can be entered in Settings. For a personal build, `BIST_SUPABASE_URL` and `BIST_SUPABASE_PUBLISHABLE_KEY` can provide defaults in the ignored `Local.xcconfig`. `build.sh` accepts the same public values as environment variables. Never put a Supabase management token, secret key or service-role key into either build. Sign-in tokens are stored by the app in Keychain.
+
+### iCloud sync
+
+The ordinary schemes save locally until Supabase sync is explicitly enabled. A signed Cloud build on each device is required for iCloud sync.
 
 1. Enroll in the Apple Developer Program and register an iPhone app ID, a Mac app ID and one CloudKit container under the same team. Enable iCloud and push notifications for both app IDs and attach the same container to both.
 2. Copy `iOS/Configuration/Local.xcconfig.example` to `iOS/Configuration/Local.xcconfig`. Fill in your registered team, bundle IDs and container. The local configuration is ignored by Git. Keep the installed Mac bundle ID consistent with the app you intend to update.

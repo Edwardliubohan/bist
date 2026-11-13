@@ -38,5 +38,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>BistSupabaseURL</key>
+	<string>$(BIST_SUPABASE_URL)</string>
+	<key>BistSupabasePublishableKey</key>
+	<string>$(BIST_SUPABASE_PUBLISHABLE_KEY)</string>
 </dict>
 </plist>

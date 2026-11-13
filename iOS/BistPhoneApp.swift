@@ -16,7 +16,7 @@ final class PhoneAppModel: ObservableObject {
         let note = NoteStore(directory: store.directory, prepareForWrite: store.prepareForAuxiliaryWrite)
         self.store = store
         self.note = note
-        sync = BistSyncCoordinator(store: store, note: note)
+        sync = BistSyncCoordinator(store: store, note: note, useBundledSupabaseDefaults: testDirectory == nil)
     }
 }
 
@@ -46,17 +46,18 @@ struct BistPhoneApp: App {
                 .defaultAppStorage(PhoneLaunchConfiguration.preferences)
                 .task {
                     delegate.sync = model.sync
-                    if model.sync.isAvailable && model.sync.enabled {
+                    if model.sync.cloudNotificationsEnabled {
                         UIApplication.shared.registerForRemoteNotifications()
                     }
                     await model.sync.refresh()
                 }
                 .onChange(of: scenePhase) { _, phase in
+                    model.sync.setForeground(phase != .background)
                     if phase == .active { Task { await model.sync.refresh() } }
                     if phase == .background { model.note.save() }
                 }
                 .onChange(of: model.sync.enabled) { _, enabled in
-                    if enabled && model.sync.isAvailable { UIApplication.shared.registerForRemoteNotifications() }
+                    if enabled && model.sync.cloudNotificationsEnabled { UIApplication.shared.registerForRemoteNotifications() }
                 }
         }
     }
