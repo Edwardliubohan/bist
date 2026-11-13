@@ -3,3 +3,8 @@ DEVELOPMENT_TEAM = YOUR_TEAM_ID
 BIST_IPHONE_BUNDLE_ID = your.registered.iphone.identifier
 BIST_MAC_BUNDLE_ID = your.registered.mac.identifier
 BIST_CLOUDKIT_CONTAINER = iCloud.your.registered.container
+
+// Optional Supabase defaults. These are public connection values, not secrets.
+// The empty expansion keeps xcconfig from treating the URL as a comment.
+BIST_SUPABASE_URL = https:/$()/YOUR_PROJECT.supabase.co
+BIST_SUPABASE_PUBLISHABLE_KEY = sb_publishable_YOUR_PUBLIC_KEY

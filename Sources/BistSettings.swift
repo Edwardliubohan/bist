@@ -97,14 +97,25 @@ struct BistSyncSettingsView: View {
     @ObservedObject var sync: BistSyncCoordinator
     @State private var restoredVersion: String?
     @State private var confirmCloudRecovery = false
+    @State private var confirmAccountMerge = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text("Sync").font(.system(size: 13, weight: .semibold))
-            Toggle("Sync with iCloud", isOn: Binding(get: { sync.enabled }, set: sync.setEnabled))
-                .toggleStyle(.switch).disabled(!sync.isAvailable)
+            Picker("Sync service", selection: Binding(get: { sync.backend }, set: sync.setBackend)) {
+                ForEach(BistSyncBackend.allCases) { Text($0.title).tag($0) }
+            }
+            if sync.backend == .supabase { SupabaseConnectionFields(account: sync.supabaseAccount) }
+            Toggle(sync.backend == .supabase ? "Sync with Supabase" : "Sync with iCloud", isOn: Binding(get: { sync.enabled }, set: {
+                if $0 && sync.accountMergeRequired { confirmAccountMerge = true }
+                else { sync.setEnabled($0) }
+            }))
+                .toggleStyle(.switch).disabled(!sync.enabled && !sync.canEnable)
             Text(sync.status).foregroundColor(muted).fixedSize(horizontal: false, vertical: true)
-            if !sync.isAvailable {
+            if sync.backend == .supabase {
+                Text("Changes save on this Mac first. Use the same project and email on your iPhone. Sync checks while bist is open.")
+                    .foregroundColor(muted).fixedSize(horizontal: false, vertical: true)
+            } else if !sync.isAvailable {
                 Text("This build saves on this Mac. An iCloud-enabled build can sync with your iPhone.")
                     .foregroundColor(muted).fixedSize(horizontal: false, vertical: true)
             }
@@ -114,7 +125,7 @@ struct BistSyncSettingsView: View {
                     Text("Last synced \(date.formatted(date: .abbreviated, time: .shortened))").foregroundColor(muted)
                 }
                 if sync.recoveryRequired {
-                    Button("Restore local data to iCloud") { confirmCloudRecovery = true }
+                    Button(sync.backend == .supabase ? "Restore local data to project" : "Restore local data to iCloud") { confirmCloudRecovery = true }
                         .buttonStyle(.plain).foregroundColor(accent).frame(minHeight: 30)
                 }
                 Button("Sync now") { Task { await sync.syncNow() } }
@@ -139,11 +150,17 @@ struct BistSyncSettingsView: View {
                 }.tint(accent)
             }
         }
-        .confirmationDialog("Restore local data to iCloud?", isPresented: $confirmCloudRecovery, titleVisibility: .visible) {
+        .confirmationDialog(sync.backend == .supabase ? "Restore local data to this project?" : "Restore local data to iCloud?", isPresented: $confirmCloudRecovery, titleVisibility: .visible) {
             Button("Restore local data") { Task { await sync.recoverCloudData() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("A backup is saved on this Mac, then your current local tasks and note are uploaded to your iCloud account.")
+            Text("A backup is saved on this Mac, then your current local tasks and note are uploaded to the selected sync account.")
+        }
+        .confirmationDialog("Combine this device with another sync account?", isPresented: $confirmAccountMerge, titleVisibility: .visible) {
+            Button("Back up and combine") { sync.authorizeSupabaseAccountChange() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Tasks and notes already on this Mac will be combined with the account you just signed in to. A local backup is saved first.")
         }
         .confirmationDialog("Restore this note version?", isPresented: Binding(get: { restoredVersion != nil }, set: { if !$0 { restoredVersion = nil } })) {
             Button("Restore note") {

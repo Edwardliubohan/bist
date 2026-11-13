@@ -25,7 +25,7 @@ def build_ref(target, path, kind='sourcecode.swift'):
 
 configs = ['Debug', 'Release', 'CloudDebug', 'CloudRelease']
 config_refs = {name: file_ref('Configuration/' + ('Base' if name in ['Debug', 'Release'] else name) + '.xcconfig', 'text.xcconfig') for name in configs}
-shared_names = ['BistCore.swift', 'LocalInbox.swift', 'NoteStore.swift', 'TaskViewState.swift', 'BistSync.swift', 'CloudKitSync.swift']
+shared_names = ['BistCore.swift', 'LocalInbox.swift', 'NoteStore.swift', 'TaskViewState.swift', 'BistSync.swift', 'CloudKitSync.swift', 'SupabaseAuth.swift', 'SupabaseAccount.swift', 'SupabaseSync.swift', 'SupabaseSettings.swift']
 shared = ['../Sources/' + name for name in shared_names]
 replica = ['../' + str(path.relative_to(ROOT)) for path in sorted((ROOT / 'Shared/Sources/BistSync').glob('*.swift'))]
 phone = ['BistPhoneApp.swift', 'PhoneTaskEditing.swift', 'PhoneViews.swift'] + shared + replica

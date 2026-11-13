@@ -31,9 +31,9 @@ bist sits in the screen corner across all Spaces and reads local agent state (T3
 - Sessions collections are Inbox (Needs you, Running, Updates), Archive, Local history, Saved links (Links). Bobot jobs with questions and results.
 - bist only has each thread's latest response excerpt, not full history.
 - Must respect Reduce Motion and Reduce Transparency, keyboard navigation (⌘1–3, ⌘N, Escape, Tab), and never take Accessibility or Screen Recording permissions.
-- System font only (README commitment). Optional private CloudKit sync for tasks, tags and notes.
+- System font only (README commitment). Optional Supabase or private CloudKit sync for tasks, tags and notes. One chosen service at a time, with account-scoped access and explicit opt-in.
 - iPhone uses a full-screen native task list, scratchpad and settings. Agent sessions and control stay on Mac.
-- Both platforms work offline. SQLite edits and pending changes commit together. Sync is opt-in and requires a configured signed build.
+- Both platforms work offline. SQLite edits and pending changes commit together. Supabase sync works in ordinary builds with a configured project and sign-in. CloudKit requires configured Apple signing and capabilities.
 
 ## Brand Commitments
 

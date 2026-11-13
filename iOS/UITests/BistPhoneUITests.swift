@@ -83,4 +83,31 @@ final class BistPhoneUITests: XCTestCase {
         XCTAssertEqual(cloud.value as? String, "0")
         keepScreenshot("Local phone settings")
     }
+
+    func testFreeSyncSetupRejectsInsecureProjectAndKeepsOfflineTask() throws {
+        let app = isolatedApp()
+        app.launch()
+        let capture = element("phone.capture", in: app)
+        XCTAssertTrue(capture.waitForExistence(timeout: 10))
+        capture.tap(); capture.typeText("Keep my offline task")
+        element("phone.capture.add", in: app).tap()
+        element("phone.capture.dismiss", in: app).tap()
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.staticTexts["Keep my offline task"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Settings"].tap()
+        let project = element("supabase.project.url", in: app)
+        XCTAssertTrue(project.waitForExistence(timeout: 5))
+        project.tap(); project.typeText("http://unsafe.example")
+        let key = element("supabase.project.key", in: app)
+        key.tap(); key.typeText("sb_publishable_fixture")
+        element("supabase.project.save", in: app).tap()
+        let error = element("supabase.account.error", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertTrue(error.label.contains("HTTPS"))
+        XCTAssertFalse(element("phone.sync.toggle", in: app).isEnabled)
+        keepScreenshot("Supabase connection validation")
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.staticTexts["Keep my offline task"].waitForExistence(timeout: 10))
+    }
 }

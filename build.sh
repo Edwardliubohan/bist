@@ -14,8 +14,8 @@ cat > build/bist.app/Contents/Info.plist <<'PLIST'
 <key>CFBundleName</key><string>bist</string>
 <key>CFBundleDisplayName</key><string>bist</string>
 <key>CFBundleIdentifier</key><string>local.bist.panel</string>
-<key>CFBundleVersion</key><string>2</string>
-<key>CFBundleShortVersionString</key><string>0.2.0</string>
+<key>CFBundleVersion</key><string>3</string>
+<key>CFBundleShortVersionString</key><string>0.3.0</string>
 <key>CFBundleExecutable</key><string>bist</string>
 <key>CFBundleIconFile</key><string>bist</string>
 <key>LSUIElement</key><true/>
@@ -23,5 +23,17 @@ cat > build/bist.app/Contents/Info.plist <<'PLIST'
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 </dict></plist>
 PLIST
+python3 - <<'PYTHON'
+import os
+import plistlib
+from pathlib import Path
+p = Path('build/bist.app/Contents/Info.plist')
+info = plistlib.loads(p.read_bytes())
+# Only public connection values belong in a client app. The app validates them
+# before use. Auth tokens stay in Keychain and setup credentials stay outside it.
+info['BistSupabaseURL'] = os.environ.get('BIST_SUPABASE_URL', '')
+info['BistSupabasePublishableKey'] = os.environ.get('BIST_SUPABASE_PUBLISHABLE_KEY', '')
+p.write_bytes(plistlib.dumps(info, sort_keys=False))
+PYTHON
 codesign --force --sign - build/bist.app
 printf 'Built %s/build/bist.app\n' "$PWD"

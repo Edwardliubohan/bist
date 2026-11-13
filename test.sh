@@ -67,4 +67,6 @@ build/tests/appearance
 
 ./scripts/test-sync-storage.sh
 ./scripts/test-sync-integration.sh
+./scripts/test-supabase-auth.sh
+./scripts/test-supabase-sync.sh
 ./iOS/test-phone.sh

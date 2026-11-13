@@ -13,10 +13,19 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Install isolated relay test tools
+        run: |
+          brew install postgresql@17
+          relay_pg_prefix="$(brew --prefix postgresql@17)"
+          echo "BIST_POSTGRES_BIN=$relay_pg_prefix/bin" >> "$GITHUB_ENV"
       - name: Test durable sync and offline replicas
         run: |
           ./scripts/test-sync-storage.sh
           ./scripts/test-sync-integration.sh
+          ./scripts/test-supabase-auth.sh
+          ./scripts/test-supabase-sync.sh
+          ./scripts/test-supabase-relay.sh
+          ./scripts/test-supabase-http.sh
           ./iOS/test-phone.sh
           swift build --package-path Shared
       - name: Check Xcode project generation
