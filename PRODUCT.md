@@ -20,7 +20,7 @@ bist sits in the screen corner across all Spaces and reads local agent state (T3
 
 ## Operating Context
 
-- Collapsed 48 × 48 corner control; expanded panel 360 × 560 points, clamped on small screens. Hover preview of outstanding tasks.
+- Collapsed 48 × 48 corner control. The expanded panel starts at 360 × 560 points, resizes from native edges and remembers the chosen size across launches. It fits smaller screens without losing the preferred size. Hover preview of outstanding tasks.
 - Sessions refreshes T3 state every 3 s and local history every 20 s while open.
 - Replies go through T3's `thread send` CLI or `codex exec resume` / `claude --resume --print`. Structured questions and permission approvals must be answered in T3.
 - Opening an update archives its displayed revision. Unanswered questions stay in the inbox.

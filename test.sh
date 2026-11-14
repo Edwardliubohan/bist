@@ -22,6 +22,8 @@ compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.s
 build/tests/corner-hover
 compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/PanelLifecycleTests.swift -o build/tests/panel-lifecycle
 build/tests/panel-lifecycle
+compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/PanelResizeTests.swift -o build/tests/panel-resize
+build/tests/panel-resize
 compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/LocalSessionTests.swift -o build/tests/local-sessions
 build/tests/local-sessions
 compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/SessionBrowserTests.swift -o build/tests/session-browser
@@ -32,6 +34,8 @@ python3 scripts/test-data-location.py
 
 compile -module-cache-path "$PWD/build/module-cache" Sources/BistCore.swift Sources/LocalInbox.swift Sources/NoteStore.swift Tests/NoteStoreTests.swift -o build/tests/note-store
 build/tests/note-store
+compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/NoteScrollTests.swift -o build/tests/note-scroll
+build/tests/note-scroll
 
 compile -D BIST_TESTING -module-cache-path "$PWD/build/module-cache" Sources/*.swift Tests/TextEntryFocusTests.swift -o build/tests/text-entry-focus
 build/tests/text-entry-focus
