@@ -134,6 +134,8 @@ No login item, background service, full transcript import, or Accessibility perm
 
 ## Keyboard
 
+On Mac, drag an edge or corner of the open panel to resize it. bist remembers the size across closing and reopening, moving between screens, and relaunching. Smaller screens fit the panel to the available space. The compact corner control keeps its original size. Note has scrollable space below the final line so you can see new lines while typing.
+
 ⌘N focuses task capture. ⌘1 / ⌘2 / ⌘3 select Tasks, Sessions and Note. Escape returns from details or collapses the panel; a visible preview is dismissed first when bist already has keyboard focus. Tab / Shift-Tab navigate controls; Space or Return activates focused buttons. ⌘Z undoes a local task action outside text editors; text editors retain normal text undo.
 
 The tests cover atomic drag placement and ordering, cycle rejection, independent subtree moves, deletion with child preservation, subtree deletion and undo, failed move/delete writes, migration, persistence and stale writes, tree integrity, horizons and stable ordering, labels, completion timestamps and history, independent completion, session/evidence validation, reviewed inbox consumption, CLI validation, panel geometry, hover-preview timing and cancellation, and input focus policy. Native visual checks are also needed for interaction changes. GitHub Actions builds the local and Cloud schemes for both platforms, runs the durable sync checks and exercises isolated iPhone task and note journeys. Signed device sync remains a separate acceptance check.

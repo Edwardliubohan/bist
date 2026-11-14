@@ -30,6 +30,7 @@ struct CornerLayout {
     static let cornerRadius: CGFloat = 16
     static let compactSize = CGSize(width: 48, height: 48)
     static let expandedSize = CGSize(width: 360, height: 560)
+    static let minimumExpandedSize = CGSize(width: 360, height: 320)
     static let edgeInset: CGFloat = 16
     static let compactHitInset: CGFloat = 2
     static let compactHitSize = CGSize(width: 44, height: 44)
@@ -72,8 +73,8 @@ struct CornerLayout {
     }
 
     /// Keep the user's compact origin independent from temporary expansion clamping.
-    static func frame(expanded: Bool, visibleFrame: CGRect, compactOrigin: CGPoint) -> CGRect {
-        let size = frame(expanded: expanded, visibleFrame: visibleFrame).size
+    static func frame(expanded: Bool, visibleFrame: CGRect, compactOrigin: CGPoint, expandedSize: CGSize = Self.expandedSize) -> CGRect {
+        let size = frame(expanded: expanded, visibleFrame: visibleFrame, expandedSize: expandedSize).size
         let compact = frame(expanded: false, visibleFrame: visibleFrame).size
         let origin = CGPoint(x: compactOrigin.x + compact.width - size.width,
                              y: compactOrigin.y + compact.height - size.height)
@@ -88,12 +89,12 @@ struct CornerLayout {
                       width: size.width, height: size.height)
     }
 
-    static func dragFrame(expanded: Bool, origin: CGPoint, visibleFrame: CGRect) -> CGRect {
-        let size = frame(expanded: expanded, visibleFrame: visibleFrame).size
+    static func dragFrame(expanded: Bool, origin: CGPoint, visibleFrame: CGRect, expandedSize: CGSize = Self.expandedSize) -> CGRect {
+        let size = frame(expanded: expanded, visibleFrame: visibleFrame, expandedSize: expandedSize).size
         return clamped(CGRect(origin: origin, size: size), to: visibleFrame)
     }
 
-    static func frame(expanded: Bool, visibleFrame: CGRect) -> CGRect {
+    static func frame(expanded: Bool, visibleFrame: CGRect, expandedSize: CGSize = Self.expandedSize) -> CGRect {
         let bounds = visibleFrame.standardized
         let requested = expanded ? expandedSize : compactSize
         // Preserve the 16 pt safe-area gap on every usable screen. On a smaller

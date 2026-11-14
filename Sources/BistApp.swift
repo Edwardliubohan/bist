@@ -22,6 +22,14 @@ final class PanelState: ObservableObject {
     @Published var isTransitioning = false
     @Published var reveal: Double = 0
     @Published var openSize = CornerLayout.expandedSize
+    private(set) var preferredOpenSize = CornerLayout.expandedSize
+    func rememberOpenSize(_ size: CGSize) {
+        guard size.width.isFinite, size.height.isFinite,
+              size.width >= CornerLayout.minimumExpandedSize.width,
+              size.height >= CornerLayout.minimumExpandedSize.height else { return }
+        preferredOpenSize = size
+        preferences.set([Double(size.width), Double(size.height)], forKey: "panelExpandedSize")
+    }
     @Published var selectedTab = 0
     @Published var focusAddToken = 0
     @Published var detailID: UUID?
@@ -51,6 +59,12 @@ final class PanelState: ObservableObject {
     }
     init(preferences: UserDefaults = .standard) {
         self.preferences = preferences
+        if let size = preferences.array(forKey: "panelExpandedSize") as? [Double], size.count == 2,
+           size.allSatisfy({ $0.isFinite }),
+           size[0] >= CornerLayout.minimumExpandedSize.width,
+           size[1] >= CornerLayout.minimumExpandedSize.height {
+            preferredOpenSize = CGSize(width: size[0], height: size[1])
+        }
         appearanceMode = BistAppearance(rawValue: preferences.string(forKey: "panelAppearance") ?? "") ?? .system
         transparency = preferences.object(forKey: "panelTransparency")
             .map { _ in min(1, max(0, preferences.double(forKey: "panelTransparency"))) } ?? 0.5
@@ -145,7 +159,7 @@ final class FloatingPanel: NSPanel {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var panel: FloatingPanel!
     var statusItem: NSStatusItem!
     let state: PanelState
@@ -163,6 +177,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var compactDrag: CompactDrag?
     var draggingExpanded = false
     var positionURL: URL!
+    private var updatingPanelFrame = false
+
+    private func updateResizeLimits(visibleFrame: CGRect) {
+        let available = CornerLayout.frame(expanded: true, visibleFrame: visibleFrame,
+            expandedSize: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)).size
+        panel.minSize = CGSize(width: min(CornerLayout.minimumExpandedSize.width, available.width),
+                               height: min(CornerLayout.minimumExpandedSize.height, available.height))
+        panel.maxSize = available
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === panel,
+              state.expanded, !state.isTransitioning, !updatingPanelFrame else { return }
+        let size = panel.frame.size
+        let previousSize = state.openSize
+        let preferred = state.preferredOpenSize
+        state.openSize = size
+        state.rememberOpenSize(CGSize(width: size.width == previousSize.width ? preferred.width : size.width,
+                                      height: size.height == previousSize.height ? preferred.height : size.height))
+        surface?.frame = CGRect(origin: .zero, size: size)
+        surface?.settle(rect: CGRect(origin: .zero, size: size), contentSize: size)
+        compactOrigin = CGPoint(x: panel.frame.maxX - CornerLayout.compactSize.width,
+                                y: panel.frame.maxY - CornerLayout.compactSize.height)
+        if let screen = panel.screen {
+            preview.reposition(anchor: CornerLayout.frame(expanded: false, visibleFrame: screen.visibleFrame,
+                                                         compactOrigin: compactOrigin!), visibleFrame: screen.visibleFrame)
+        }
+        panel.invalidateShadow()
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) { savePosition() }
 
     func screen(for point: CGPoint) -> NSScreen? {
         NSScreen.screens.first { $0.frame.contains(point) } ?? panel?.screen ?? NSScreen.main
@@ -176,11 +221,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func updateDraggedFrame(_ origin: CGPoint, pointer: CGPoint) {
         guard let screen = screen(for: pointer) else { return }
-        let frame = CornerLayout.pixelAligned(CornerLayout.dragFrame(expanded: draggingExpanded, origin: origin, visibleFrame: screen.visibleFrame), scale: screen.backingScaleFactor)
+        let frame = CornerLayout.pixelAligned(CornerLayout.dragFrame(expanded: draggingExpanded, origin: origin, visibleFrame: screen.visibleFrame,
+                                                                    expandedSize: state.preferredOpenSize), scale: screen.backingScaleFactor)
         applyDraggedFrame(frame, visibleFrame: screen.visibleFrame)
     }
 
     func applyDraggedFrame(_ frame: CGRect, visibleFrame: CGRect) {
+        updatingPanelFrame = true
+        defer { updatingPanelFrame = false }
         if draggingExpanded { state.openSize = frame.size }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -192,6 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             surface.settle(rect: bounds, contentSize: contentSize)
         }
         CATransaction.commit()
+        if draggingExpanded { updateResizeLimits(visibleFrame: visibleFrame) }
         compactOrigin = draggingExpanded
             ? CGPoint(x: frame.maxX - CornerLayout.compactSize.width, y: frame.maxY - CornerLayout.compactSize.height)
             : frame.origin
@@ -212,6 +261,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return true
             }
             if state.expanded {
+                // Leave the native edge band available to AppKit, including
+                // the top edge where the header also supports window dragging.
+                guard panel.frame.insetBy(dx: 6, dy: 6).contains(pointer) else { return false }
                 guard state.focusContext.contains(.drag, point: event.locationInWindow, in: panel) else { return false }
             } else {
                 guard panel.frame.insetBy(dx: 2, dy: 2).contains(pointer) else { return false }
@@ -364,12 +416,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     func position(_ expanded: Bool, animated: Bool = false) {
+        updatingPanelFrame = true
+        defer { updatingPanelFrame = false }
+        panel.delegate = self
         let point = compactOrigin.map { CGPoint(x: $0.x + 24, y: $0.y + 24) }
         guard let screen = point.flatMap({ self.screen(for: $0) }) ?? panel?.screen ?? NSScreen.main else { return }
         let requestedAnchor = compactOrigin.map { CornerLayout.frame(expanded: false, visibleFrame: screen.visibleFrame, compactOrigin: $0) }
             ?? CornerLayout.frame(expanded: false, visibleFrame: screen.visibleFrame)
         let anchor = CornerLayout.pixelAligned(requestedAnchor, scale: screen.backingScaleFactor)
-        let open = CornerLayout.frame(expanded: true, visibleFrame: screen.visibleFrame, compactOrigin: anchor.origin)
+        let open = CornerLayout.frame(expanded: true, visibleFrame: screen.visibleFrame, compactOrigin: anchor.origin,
+                                      expandedSize: state.preferredOpenSize)
         let target = expanded ? open : anchor
         // Idempotent opens (Settings / menu / shortcuts) cannot restart a reveal.
         let motionDisabled = reduceWindowMotion || state.reduced || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -378,6 +434,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transitionGeneration &+= 1
         let generation = transitionGeneration
         transitionTarget = expanded
+        // Native edge resizing is available only on the fully revealed panel.
+        panel.styleMask.remove(.resizable)
+        panel.minSize = .zero
+        panel.maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         compactOrigin = anchor.origin
         state.openSize = open.size
         // Suppress hover previews for BOTH directions until the compositor settles.
@@ -424,6 +484,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Removing a CA animation can invoke its old completion. Only the newest
         // request is allowed to resize the window or re-enable the page.
         guard generation == transitionGeneration else { return }
+        updatingPanelFrame = true
+        defer { updatingPanelFrame = false }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         var transaction = Transaction(); transaction.disablesAnimations = true
@@ -435,6 +497,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         surface?.frame = CGRect(origin: .zero, size: target.size)
         surface?.settle(rect: CGRect(origin: .zero, size: target.size), contentSize: contentSize)
         panel.invalidateShadow()
+        if expanded {
+            updateResizeLimits(visibleFrame: panel.screen?.visibleFrame ?? target)
+            panel.styleMask.insert(.resizable)
+        }
         CATransaction.commit()
         transitionTarget = nil
         preview.setExpanded(expanded)
