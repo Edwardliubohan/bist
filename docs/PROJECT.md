@@ -3,13 +3,13 @@
 bist is a small native macOS checklist and session panel that lives in the
 top-right corner of the screen, with an iPhone companion that shares the same
 task rules (`Sources/BistCore.swift`, `Sources/TaskViewState.swift`) and syncs
-through private iCloud. `README.md` covers installation and the full feature
+through private iCloud or Supabase. `README.md` covers installation and the full feature
 list; the other files in `docs/` cover Bobot, agent results, local updates and
 the iPhone build.
 
 ## Where things stand
 
-### Subtasks and completion (`dodo-mods` branch)
+### Subtasks and completion
 
 - **Inline subtask entry.** Every open row on the Mac shows a **+** on hover.
   It opens a text field directly beneath that task's open subtasks
@@ -49,10 +49,3 @@ native field editor to confirm the inline field adds on Return and stays open.
 `Tests/InactiveTextEntryTests.swift` intermittently fails its "first native
 caret must actually render" precondition (also on unmodified `main`), which
 stops `./test.sh` early. Rerunning usually passes.
-
-### Building from the iCloud Desktop
-
-The repo lives in an iCloud-synced folder, which adds Finder metadata to
-`build/bist.app` and makes the final `codesign` in `build.sh` fail. Copy the
-app elsewhere with `ditto --noextattr --norsrc`, run `xattr -cr` and
-`codesign --force --sign -` on the copy, then install that copy.
