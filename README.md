@@ -12,21 +12,15 @@ Requires an Apple Silicon Mac (M1 or later), macOS 14 Sonoma or later, and Apple
    xcode-select --install
    ```
 
-2. Clone the repository and build the app.
+2. Clone the repository and install the app.
 
    ```sh
-   git clone https://github.com/Edwardliubohan/bist.git
-   cd bist
-   ./build.sh
+   git clone https://github.com/Edwardliubohan/bist.git &&
+   cd bist &&
+   ./install.sh
    ```
 
-3. Copy the built app to your user Applications folder and open it. Quit any running copy of bist before installing or updating.
-
-   ```sh
-   mkdir -p "$HOME/Applications"
-   ditto build/bist.app "$HOME/Applications/bist.app"
-   open "$HOME/Applications/bist.app"
-   ```
+The installer builds and checks the app before copying it to `~/Applications/bist.app` and opening it. A failed build or copy leaves an existing installation intact. Quit the installed copy of bist before installing or updating. Tasks and notes stay in `~/Library/Application Support/bist/`.
 
 Look for the small orange control near the top-right corner of your screen. Click it to open the panel. bist runs without a Dock icon.
 
@@ -37,11 +31,18 @@ The build signs the app locally. If macOS blocks opening it, use System Settings
 Quit bist, then run these commands from your cloned repository and reopen the installed copy. Tasks and notes stay in `~/Library/Application Support/bist/`, separately from the app.
 
 ```sh
-git pull --ff-only
-./build.sh
-ditto build/bist.app "$HOME/Applications/bist.app"
-open "$HOME/Applications/bist.app"
+git pull --ff-only && ./install.sh
 ```
+
+If you already applied a separate source patch, save or commit that change before pulling. New installs from the updated repository include the fix.
+
+### Installation troubleshooting
+
+If installation stops, use the first error printed in Terminal. Missing Apple build tools need `xcode-select --install` and the completed macOS installer before retrying. If compilation fails, update the Command Line Tools in System Settings → General → Software Update, then retry. The source build is checked locally with Swift 5.10 and in GitHub Actions with the runner's selected Xcode.
+
+The error `kLSNoExecutableErr` means the app bundle has no usable executable. From the cloned repository, run `./install.sh` to rebuild and verify it before installation.
+
+For an isolated install check, use `./install.sh --destination /path/to/test-folder --no-open`. This builds and verifies the same bundle without launching it.
 
 ### Optional integrations
 

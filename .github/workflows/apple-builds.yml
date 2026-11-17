@@ -9,6 +9,19 @@ permissions:
   contents: read
 
 jobs:
+  mac-install:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test failed installs and rollback
+        run: python3 Tests/test_install.py
+      - name: Build and install using the documented source path
+        run: |
+          xcrun swiftc --version
+          ./install.sh --destination "$RUNNER_TEMP/bist-install-smoke" --no-open
+          test -x "$RUNNER_TEMP/bist-install-smoke/bist.app/Contents/MacOS/bist"
+          codesign --verify --deep --strict "$RUNNER_TEMP/bist-install-smoke/bist.app"
   shared-sync:
     runs-on: macos-15
     steps:
