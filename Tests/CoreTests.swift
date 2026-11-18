@@ -603,6 +603,21 @@ struct CoreTests {
         expect(dragStore.canMoveTask(id: mainB, to: .inside(mainA)) && dragStore.reparentTask(id: mainB, parentID: mainA),
                "explicit parent choice can still nest a main task")
 
+        let sinkStore = AppStore(directory: root.appendingPathComponent("drag-completed"))
+        for title in ["Done X", "Open A", "Open B", "Open C"] { expect(sinkStore.addTask(title: title), "drag sink: \(title)") }
+        let sinkIDs = sinkStore.tasks.map(\.id)
+        expect(sinkStore.setUserCompletion(id: sinkIDs[0], completed: true), "drag sink: complete X")
+        expect(sinkStore.dragPlacement(id: sinkIDs[1], proposed: .before(sinkIDs[0])) == .after(sinkIDs[3]),
+               "dropping an open task beside a completed row lands after the last open sibling")
+        expect(sinkStore.dragPlacement(id: sinkIDs[3], proposed: .after(sinkIDs[0])) == .after(sinkIDs[2]),
+               "the dragged task never anchors to itself")
+        expect(sinkStore.dragPlacement(id: sinkIDs[1], proposed: .before(sinkIDs[2])) == .before(sinkIDs[2]),
+               "drops beside open rows are unchanged")
+        expect(sinkStore.moveTask(id: sinkIDs[1], to: sinkStore.dragPlacement(id: sinkIDs[1], proposed: .before(sinkIDs[0]))),
+               "drag sink: move A to the bottom")
+        expect(ActiveChecklist(tasks: sinkStore.tasks, collapsedParents: []).entries(for: .shortTerm).map(\.task.title)
+               == ["Open B", "Open C", "Open A", "Done X"], "the moved task shows where it was dropped")
+
         print("PASS: \(checks) core checks")
     }
 }

@@ -628,6 +628,21 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// Completed siblings display below open ones, so dropping an open task
+    /// beside a completed row means "last among the open tasks". Mapping it to
+    /// the last open sibling keeps the stored result matching what was shown.
+    func dragPlacement(id: UUID, proposed placement: TaskPlacement) -> TaskPlacement {
+        switch placement {
+        case .before(let targetID), .after(let targetID):
+            guard let target = tasks.first(where: { $0.id == targetID }), target.completed,
+                  let task = tasks.first(where: { $0.id == id }), !task.completed,
+                  let last = tasks.last(where: { $0.id != id && !$0.completed
+                      && $0.parentID == target.parentID && $0.horizon == target.horizon }) else { return placement }
+            return .after(last.id)
+        case .list, .inside: return placement
+        }
+    }
+
     /// A single validated commit keeps reparenting, group and ordering atomic,
     /// including on disk failures and undo. Unrelated siblings never move.
     @discardableResult
