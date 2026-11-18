@@ -832,8 +832,8 @@ private struct TaskInspectorContent: View {
                             TaskTagPicker(store: store,
                                           selectedIDs: Binding(get: { task.labelIDs }, set: { _ = store.setTaskLabels(id: taskID, labelIDs: $0) }),
                                           newLabelName: $draft.newLabelName, creatingLabel: $draft.creatingLabel)
-                            AgentHelpToggle(isOn: $draft.agentHelpRequested)
-                            BobotAssignment(task: task)
+                            if bobot.offersHelpToggle(for: taskID) { AgentHelpToggle(isOn: $draft.agentHelpRequested) }
+                            BobotAssignment(task: task, saveDraft: { persistText() ? store.tasks.first { $0.id == taskID } : nil })
                             HStack(spacing: 16) {
                                 BistButton { movePresented = true } label: {
                                     Label("Move to…", systemImage: "arrow.turn.down.right")
@@ -995,7 +995,7 @@ private struct TaskInspectorContent: View {
     }
     private var hasTextChanges: Bool { draft.isDirty }
     private func save() {
-        let assign = draft.agentHelpRequested && (task?.agentHelpRequested != true || bobot.latest(for: taskID) == nil)
+        let assign = bobot.assignsOnSave(requested: draft.agentHelpRequested, taskID: taskID)
         if persistText() {
             if assign, let task {
                 if !bobot.assign(task) { localError = bobot.error; return }

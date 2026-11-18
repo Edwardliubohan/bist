@@ -41,7 +41,21 @@ struct BobotStoreTests {
         expect(!restored.answer(jobID: jobs[0]["id"] as! String, questionID: questionID, text: "Overwrite"), "Cannot answer twice")
         expect(restored.cancel(restored.jobs[0].id), "Cancellation commits")
         expect(!restored.cancel(restored.jobs[0].id), "Terminal job cannot change")
+        expect(!restored.agentAssigned(task), "Cancelled assignment clears the Agent mark")
+        expect(!BobotStore(directory: directory).agentAssigned(task), "Cleared Agent mark survives reopening")
+        expect(!restored.offersHelpToggle(for: task.id), "Cancelled task hides the stale Ask Bobot toggle")
+        expect(!restored.assignsOnSave(requested: true, taskID: task.id), "Saving a cancelled task never requeues it implicitly")
+        expect(bobot.offersHelpToggle(for: personal.id) && bobot.assignsOnSave(requested: true, taskID: personal.id),
+               "Unassigned task queues from the inspector toggle")
+        expect(!bobot.assignsOnSave(requested: false, taskID: personal.id), "Toggle off never queues")
+        restored.refresh()
+        var cancelledReviewed = task
+        cancelledReviewed.agentCompletion = AgentCompletion(sessionID: UUID(), artifactURL: "https://example.com/result",
+            summary: "Reviewed result", observedAt: Date(), reviewedAt: Date())
+        expect(restored.agentAssigned(cancelledReviewed) && restored.agentCompletionStatus(for: cancelledReviewed).done,
+               "Cancelling a rerun keeps evidence you already reviewed")
         expect(restored.assign(task) && restored.jobs.count == 2, "Explicit rerun gets separate history")
+        expect(restored.agentAssigned(task), "Reassigning after cancel restores the Agent mark")
         let longTitleTask = TaskItem(title: String(repeating: "a", count: 240))
         expect(restored.assign(longTitleTask) && BobotStore(directory: directory).jobs.count == 3, "Longest valid task title survives reload")
         expect(restored.agentAssigned(longTitleTask), "A Bobot assignment shows an Agent mark")
