@@ -61,16 +61,24 @@ final class BobotStore: ObservableObject {
     var pending: [BobotJob] { jobs.filter { $0.pendingQuestion != nil } }
     func latest(for id: UUID) -> BobotJob? { jobs.last { $0.taskID == id.uuidString.lowercased() } }
     /// Only tasks sent to an agent get an Agent mark. Personal tasks leave the column empty.
+    /// Cancelling the latest assignment clears the mark unless you already reviewed a result.
     func agentAssigned(_ task: TaskItem) -> Bool {
-        task.agentHelpRequested || task.agentCompletion != nil || latest(for: task.id) != nil
+        if task.agentCompletion != nil { return true }
+        if let job = latest(for: task.id) { return job.state != "cancelled" }
+        return task.agentHelpRequested
     }
+    /// The inspector's Ask Bobot toggle only starts the first assignment. Once a job
+    /// exists, its status and the explicit "Ask Bobot to do this" button take over,
+    /// so a stale saved request can never requeue a cancelled task on Save.
+    func offersHelpToggle(for id: UUID) -> Bool { latest(for: id) == nil }
+    func assignsOnSave(requested: Bool, taskID: UUID) -> Bool { requested && offersHelpToggle(for: taskID) }
     /// The latest explicit assignment supersedes older results, including a rerun.
     /// This is a display projection only; personal completion and Undo stay in AppStore.
     func agentCompletionStatus(for task: TaskItem) -> (done: Bool, value: String, hint: String) {
         if error != nil {
             return (false, "Unknown. Couldn’t read agent status.", "Check Bobot’s queue in Sessions.")
         }
-        if let job = latest(for: task.id) {
+        if let job = latest(for: task.id), job.state != "cancelled" {
             return (job.state == "completed",
                     job.state == "completed" ? "Done by agent. Ready for your review." : job.status,
                     "Open task details for the assignment and output. Check Me after your own review and completion.")

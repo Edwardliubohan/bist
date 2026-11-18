@@ -3,6 +3,8 @@ import SwiftUI
 
 struct BobotAssignment: View {
     let task: TaskItem
+    /// Saves unsaved inspector text first, so a rerun sends what you see.
+    let saveDraft: () -> TaskItem?
     @EnvironmentObject private var bobot: BobotStore
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -22,9 +24,9 @@ struct BobotAssignment: View {
                     Text("Check Me when you’ve reviewed and finished your part.")
                         .font(.system(size: 10)).foregroundColor(muted)
                 }
-                BistButton("Ask Bobot to do this") { _ = bobot.assign(task) }
+                BistButton("Ask Bobot to do this") { if let saved = saveDraft() { _ = bobot.assign(saved) } }
                     .buttonStyle(TactileStyle(compact: true)).font(.system(size: 11))
-                Text(bobot.connected ? "Sends the saved task name and details to Bobot." : "Queues this task. Connect Bobot in Sessions to start work.")
+                Text(bobot.connected ? "Saves your edits, then sends the task name and details to Bobot." : "Saves your edits and queues this task. Connect Bobot in Sessions to start work.")
                     .font(.system(size: 10)).foregroundColor(muted).fixedSize(horizontal: false, vertical: true)
             }
             if let error = bobot.error { Text(error).font(.system(size: 10)).foregroundColor(.red).fixedSize(horizontal: false, vertical: true) }
