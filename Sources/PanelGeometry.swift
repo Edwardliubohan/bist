@@ -72,6 +72,14 @@ struct CornerLayout {
         return CGRect(x: x, y: useAbove ? anchor.maxY : anchor.minY - fittedHeight, width: width, height: fittedHeight)
     }
 
+    /// Unit point (SwiftUI top-left origin) inside the visible preview card that
+    /// sits closest to the corner control, so the card grows out of the icon.
+    static func previewGrowthOrigin(preview: CGRect, anchor: CGRect) -> CGPoint {
+        guard preview.width > 0 else { return CGPoint(x: 1, y: 0) }
+        let x = min(1, max(0, (anchor.midX - preview.minX) / preview.width))
+        return CGPoint(x: x, y: preview.minY >= anchor.maxY ? 1 : 0)
+    }
+
     /// Keep the user's compact origin independent from temporary expansion clamping.
     static func frame(expanded: Bool, visibleFrame: CGRect, compactOrigin: CGPoint, expandedSize: CGSize = Self.expandedSize) -> CGRect {
         let size = frame(expanded: expanded, visibleFrame: visibleFrame, expandedSize: expandedSize).size
@@ -114,6 +122,15 @@ struct CornerLayout {
     }
 }
 
+/// The hover preview scales and fades out of the corner control. Reduce Motion
+/// keeps only the fade.
+struct PreviewRevealMotion {
+    static let collapsedScale: CGFloat = 0.3
+    static let showDuration: TimeInterval = 0.34
+    static let hideDuration: TimeInterval = 0.14
+    static let reducedDuration: TimeInterval = 0.12
+}
+
 /// A clock-driven intent model. Timer generations make cancelled callbacks inert.
 /// Hover only opens the passive preview; it never expands or activates the app.
 struct HoverPreviewInteraction {
@@ -124,7 +141,7 @@ struct HoverPreviewInteraction {
         let deadline: TimeInterval
         let generation: UInt64
     }
-    static let enterDelay: TimeInterval = 0.25
+    static let enterDelay: TimeInterval = 0.5
     static let leaveGrace: TimeInterval = 0.16
     private(set) var isVisible = false
     private(set) var pending: Pending?
@@ -132,6 +149,9 @@ struct HoverPreviewInteraction {
     private(set) var isExpanded = false
     private(set) var regions: Set<Region> = []
     private(set) var suppressedUntilExit = false
+    /// The window reports this while the card is still visibly shrinking.
+    /// Returning then reverses it at once rather than waiting a fresh dwell.
+    private(set) var isShrinking = false
     var needsPointerSampling: Bool { !isExpanded && (isVisible || pending != nil || !regions.isEmpty) }
 
     mutating func pointerChanged(_ region: Region, inside: Bool, at now: TimeInterval) {
@@ -150,7 +170,9 @@ struct HoverPreviewInteraction {
             if regions.isEmpty { schedule(.hide, at: now + Self.leaveGrace) }
             else { invalidate() }
         } else if regions.contains(.corner) {
-            if pending?.intent != .show { schedule(.show, at: now + Self.enterDelay) }
+            if pending?.intent != .show {
+                schedule(.show, at: isShrinking ? now : now + Self.enterDelay)
+            }
         } else {
             invalidate()
         }
@@ -172,6 +194,8 @@ struct HoverPreviewInteraction {
         return true
     }
 
+    mutating func setShrinking(_ shrinking: Bool) { isShrinking = shrinking }
+
     mutating func setExpanded(_ expanded: Bool) {
         isExpanded = expanded
         cancel()
@@ -182,6 +206,7 @@ struct HoverPreviewInteraction {
     mutating func cancel() {
         invalidate()
         isVisible = false
+        isShrinking = false
         // Hiding a native window need not emit mouseExited for its tracking area.
         regions = regions.intersection([.corner])
         suppressedUntilExit = !regions.isEmpty
@@ -189,7 +214,7 @@ struct HoverPreviewInteraction {
 
     @discardableResult
     mutating func escape() -> Bool {
-        let handled = isVisible || pending != nil
+        let handled = isVisible || pending != nil || isShrinking
         if handled { cancel() }
         return handled
     }
