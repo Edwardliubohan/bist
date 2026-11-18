@@ -44,6 +44,22 @@ Tests: `Tests/CoreTests.swift` covers the drag rules;
 `Tests/InlineSubtaskTests.swift` mounts the real checklist and types through the
 native field editor to confirm the inline field adds on Return and stays open.
 
+### Opening from Spotlight
+
+When bist is already running, Spotlight, Finder and Launchpad don't start a
+second copy. macOS sends the running app a "reopen" event instead. bist used to
+ignore it, so the panel stayed collapsed and nothing appeared to happen.
+`AppDelegate.applicationShouldHandleReopen` in `Sources/BistApp.swift` now
+expands the panel and brings it forward, and leaves an already open panel on
+its current page. `Tests/PanelLifecycleTests.swift` covers both cases.
+
+Spotlight lists every bundle named bist, including stale copies such as
+`build/bist.app` in this repo and any backup in `~/Applications`. All of them
+share the bundle ID `local.bist.panel`, so while one is running macOS routes
+them to it. When none is running, a stale copy launches its own older code.
+Keep only `~/Applications/bist.app`, or add the repo's `build` folder to
+System Settings → Spotlight → Search Privacy.
+
 ### Known test-environment issue
 
 `Tests/InactiveTextEntryTests.swift` intermittently fails its "first native
