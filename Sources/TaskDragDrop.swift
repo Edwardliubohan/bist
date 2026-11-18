@@ -73,14 +73,23 @@ struct TaskRowDropDelegate: DropDelegate {
     let didMove: (UUID?) -> Void
 
     private func destination(_ info: DropInfo) -> TaskPlacement {
+        let proposed = rowPlacement(info)
+        guard let id = drag.taskID else { return proposed }
+        return store.dragPlacement(id: id, proposed: proposed)
+    }
+    private func rowPlacement(_ info: DropInfo) -> TaskPlacement {
         guard let rowID else { return .list(horizon) }
         if info.location.y < 7 { return .before(rowID) }
         if info.location.y > 23 { return .after(rowID) }
+        // A top-level task can't nest, so the whole row reorders it instead.
+        if let id = drag.taskID, store.tasks.first(where: { $0.id == id })?.parentID == nil {
+            return info.location.y < 15 ? .before(rowID) : .after(rowID)
+        }
         return .inside(rowID)
     }
     func validateDrop(info: DropInfo) -> Bool {
         guard let id = drag.taskID else { return false }
-        return info.hasItemsConforming(to: [.text]) && store.canMoveTask(id: id, to: destination(info))
+        return info.hasItemsConforming(to: [.text]) && store.canDragTask(id: id, to: destination(info))
     }
     func dropEntered(info: DropInfo) { update(info) }
     func dropUpdated(info: DropInfo) -> DropProposal? {

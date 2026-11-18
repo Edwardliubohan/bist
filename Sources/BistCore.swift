@@ -487,14 +487,52 @@ final class AppStore: ObservableObject {
     }
 
     /// User completion never completes descendants or changes agent evidence.
+    /// Checking the last open subtask also checks its parent, repeating upward;
+    /// reopening a subtask reopens its checked ancestors. One commit, one Undo.
     @discardableResult
     func setUserCompletion(id: UUID, completed: Bool) -> Bool {
         guard !blockedByUnreadableStore, let index = tasks.firstIndex(where: { $0.id == id }) else { return false }
         guard tasks[index].completed != completed else { storeError = nil; return true }
-        return commit(label: completed ? "Task completed" : "Task reopened") {
-            $0.tasks[index].completed = completed
-            $0.tasks[index].completedAt = completed ? Date() : nil
+        let cascaded = completed ? ancestorsCompletedByChecking(id) : ancestorsReopenedByUnchecking(id)
+        let label: String
+        switch (completed, cascaded.isEmpty) {
+        case (true, true): label = "Task completed"
+        case (true, false): label = "Subtasks done · parent completed"
+        case (false, true): label = "Task reopened"
+        case (false, false): label = "Task and parent reopened"
         }
+        let affected = cascaded.union([id])
+        let now = Date()
+        return commit(label: label) { value in
+            for position in value.tasks.indices where affected.contains(value.tasks[position].id) {
+                value.tasks[position].completed = completed
+                value.tasks[position].completedAt = completed ? now : nil
+            }
+        }
+    }
+
+    private func ancestorsCompletedByChecking(_ id: UUID) -> Set<UUID> {
+        let byID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+        var done: Set<UUID> = [id]
+        var result = Set<UUID>()
+        var current = byID[id]?.parentID
+        while let parentID = current, let parent = byID[parentID], !parent.completed, !done.contains(parentID) {
+            let children = tasks.filter { $0.parentID == parentID }
+            guard children.allSatisfy({ $0.completed || done.contains($0.id) }) else { break }
+            done.insert(parentID); result.insert(parentID)
+            current = parent.parentID
+        }
+        return result
+    }
+
+    private func ancestorsReopenedByUnchecking(_ id: UUID) -> Set<UUID> {
+        let byID = Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, $0) })
+        var result = Set<UUID>()
+        var current = byID[id]?.parentID
+        while let parentID = current, let parent = byID[parentID], parent.completed, result.insert(parentID).inserted {
+            current = parent.parentID
+        }
+        return result
     }
 
     @discardableResult
@@ -575,6 +613,33 @@ final class AppStore: ObservableObject {
         case .list: return true
         case .inside(let target), .before(let target), .after(let target):
             return !descendants.contains(target) && tasks.contains { $0.id == target && !$0.completed }
+        }
+    }
+
+    /// Dragging may promote a subtask to the top level, but never nests a
+    /// top-level task; that takes an explicit parent choice in its details.
+    func canDragTask(id: UUID, to placement: TaskPlacement) -> Bool {
+        guard canMoveTask(id: id, to: placement), let task = tasks.first(where: { $0.id == id }) else { return false }
+        guard task.parentID == nil else { return true }
+        switch placement {
+        case .list: return true
+        case .inside: return false
+        case .before(let target), .after(let target): return tasks.first { $0.id == target }?.parentID == nil
+        }
+    }
+
+    /// Completed siblings display below open ones, so dropping an open task
+    /// beside a completed row means "last among the open tasks". Mapping it to
+    /// the last open sibling keeps the stored result matching what was shown.
+    func dragPlacement(id: UUID, proposed placement: TaskPlacement) -> TaskPlacement {
+        switch placement {
+        case .before(let targetID), .after(let targetID):
+            guard let target = tasks.first(where: { $0.id == targetID }), target.completed,
+                  let task = tasks.first(where: { $0.id == id }), !task.completed,
+                  let last = tasks.last(where: { $0.id != id && !$0.completed
+                      && $0.parentID == target.parentID && $0.horizon == target.horizon }) else { return placement }
+            return .after(last.id)
+        case .list, .inside: return placement
         }
     }
 

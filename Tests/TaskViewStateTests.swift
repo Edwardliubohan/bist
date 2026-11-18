@@ -320,11 +320,11 @@ struct TaskViewStateTests {
         expect(active([parentID]).map(\.id) == [parentID, nextID], "active project collapses descendants")
         expect(treeStore.setUserCompletion(id: parentID, completed: true), "complete collapsed parent")
         let parentDeadline = treeStore.tasks[0].archiveDate!
-        expect(active([parentID]).map(\.id) == [parentID, nextID], "recent completion stays in its collapsed position")
-        expect(active().map(\.id) == [parentID, childID, grandchildID, nextID], "recent completion retains full hierarchy")
-        expect(active().first?.task.completed == true, "retained row carries checked state for strikethrough")
+        expect(active([parentID]).map(\.id) == [nextID, parentID], "recent completion sinks below open siblings")
+        expect(active().map(\.id) == [nextID, parentID, childID, grandchildID], "recent completion retains full hierarchy")
+        expect(active().first { $0.id == parentID }?.task.completed == true, "retained row carries checked state for strikethrough")
         expect(treeStore.completedHistory.isEmpty, "recent completion has not entered archive")
-        expect(active([parentID], at: parentDeadline.addingTimeInterval(-0.001)).first?.id == parentID, "visible just before rolling 24-hour deadline")
+        expect(active([parentID], at: parentDeadline.addingTimeInterval(-0.001)).last?.id == parentID, "visible just before rolling 24-hour deadline")
         expect(active([parentID], at: parentDeadline).map(\.id) == [childID, grandchildID, nextID], "at deadline archived parent cannot hide unfinished children")
         expect(active(at: parentDeadline).map(\.depth) == [0, 1, 0], "archived ancestors promote visually")
         expect(treeStore.tasks[1].parentID == parentID && !treeStore.tasks[1].completed, "projection never mutates child data")
@@ -335,13 +335,17 @@ struct TaskViewStateTests {
                "inspector retains recent completed direct child")
         expect(active([parentID, childID], at: childDeadline).map(\.id) == [grandchildID, nextID], "archived ancestors cannot hide unfinished descendants")
         expect(treeStore.archivedTasks(at: childDeadline).map(\.id) == [childID, parentID], "archive uses actual completion order")
-        expect(treeStore.undo() && active().map(\.id) == [parentID, childID, grandchildID, nextID], "undo completion preserves retained hierarchy")
+        expect(treeStore.undo() && active().map(\.id) == [nextID, parentID, childID, grandchildID], "undo completion preserves retained hierarchy")
         expect(treeStore.setUserCompletion(id: parentID, completed: false), "reopen parent")
         expect(active().map(\.id) == [parentID, childID, grandchildID, nextID], "reopen restores original ordering")
         expect(treeStore.setTaskHorizon(id: childID, horizon: .longerTerm), "move tree from child")
         expect(active().map(\.id) == [nextID], "group move leaves unrelated order stable")
         let moved = ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).entries(for: .longerTerm)
         expect(moved.map(\.id) == [parentID, childID, grandchildID], "group move retains tree order")
+        expect(treeStore.setUserCompletion(id: childID, completed: true), "complete the only direct subtask")
+        expect(treeStore.tasks[0].completed && treeStore.tasks[0].completedAt == treeStore.tasks[1].completedAt,
+               "checking the last open subtask checks its parent at the same moment")
+        expect(treeStore.undo() && !treeStore.tasks[0].completed && !treeStore.tasks[1].completed, "one undo reverts subtask and parent together")
         expect(treeStore.setUserCompletion(id: childID, completed: true) && treeStore.setUserCompletion(id: grandchildID, completed: true), "complete all descendants")
         expect(ActiveChecklist(tasks: treeStore.tasks, collapsedParents: []).entries(for: .longerTerm).first?.hasChildren == true,
                "retained completed children keep disclosure")
@@ -351,12 +355,38 @@ struct TaskViewStateTests {
         let reload = AppStore(directory: treeStore.directory)
         expect(ActiveChecklist(tasks: reload.tasks, collapsedParents: []).entries(for: .longerTerm).map(\.id) == [parentID, childID, grandchildID], "restart preserves retained rows and hierarchy")
         let finalDeadline = reload.tasks.compactMap(\.archiveDate).max()!
-        expect(ActiveChecklist(tasks: reload.tasks, collapsedParents: [], now: finalDeadline).entries(for: .longerTerm).map(\.id) == [parentID], "restart projects expired descendants into archive")
+        expect(ActiveChecklist(tasks: reload.tasks, collapsedParents: [], now: finalDeadline).entries(for: .longerTerm).isEmpty, "auto-completed parent archives with its subtasks")
         expect(ActiveChecklist(tasks: reload.tasks, collapsedParents: [], now: finalDeadline).children(of: parentID).isEmpty, "inspector excludes expired descendants")
         let deadlineBeforeReopening = treeStore.tasks[1].archiveDate
         expect(treeStore.setUserCompletion(id: childID, completed: false), "reopen retained child")
         expect(treeStore.tasks[1].archiveDate == nil, "reopening cancels archive deadline")
+        expect(!treeStore.tasks[0].completed, "reopening a subtask reopens its auto-completed parent")
         expect(treeStore.undo() && treeStore.tasks[1].archiveDate == deadlineBeforeReopening, "undo reopening restores original deadline exactly")
+
+        let orderStore = AppStore(directory: directory.appendingPathComponent("completion-order"))
+        for title in ["A", "B", "C", "D"] { expect(orderStore.addTask(title: title), "create root \(title)") }
+        let rootIDs = orderStore.tasks.map(\.id)
+        func orderedTitles() -> [String] {
+            ActiveChecklist(tasks: orderStore.tasks, collapsedParents: []).entries(for: .shortTerm).map(\.task.title)
+        }
+        expect(orderStore.setUserCompletion(id: rootIDs[1], completed: true), "complete B")
+        expect(orderedTitles() == ["A", "C", "D", "B"], "completed task moves below every open task")
+        expect(orderStore.setUserCompletion(id: rootIDs[0], completed: true), "complete A")
+        expect(orderedTitles() == ["C", "D", "A", "B"], "newer completion sits above earlier completions")
+        expect(orderStore.tasks.map(\.id) == rootIDs, "completion ordering never rewrites stored order")
+        expect(orderStore.setUserCompletion(id: rootIDs[1], completed: false), "reopen B")
+        expect(orderedTitles() == ["B", "C", "D", "A"], "reopened task returns to its original place")
+
+        expect(orderStore.addTask(title: "Child 1", parentID: rootIDs[2]) && orderStore.addTask(title: "Child 2", parentID: rootIDs[2]), "add two subtasks to C")
+        let child1 = orderStore.tasks[4].id, child2 = orderStore.tasks[5].id
+        expect(orderStore.addTask(title: "Grandchild", parentID: child2), "add grandchild under Child 2")
+        let grandchild = orderStore.tasks[6].id
+        expect(orderStore.setUserCompletion(id: child1, completed: true) && !orderStore.tasks[2].completed, "parent stays open while a subtask is open")
+        expect(orderStore.setUserCompletion(id: grandchild, completed: true), "complete the grandchild")
+        expect(orderStore.tasks[5].completed && orderStore.tasks[2].completed, "completion cascades through every level")
+        expect(orderStore.lastActionLabel == "Subtasks done · parent completed", "cascade has its own undo label")
+        expect(orderStore.undo() && !orderStore.tasks[2].completed && !orderStore.tasks[5].completed && !orderStore.tasks[6].completed,
+               "one undo reverts the whole cascade")
 
         print("PASS: \(checks) task view-state checks")
     }
