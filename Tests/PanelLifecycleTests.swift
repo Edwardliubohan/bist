@@ -215,6 +215,18 @@ struct PanelLifecycleTests {
         expect(surface.presentationRect == surface.bounds, "Settled mask exactly matches the native window")
         expect(host.frame.size == open.size, "Even clamped transitions retain final content size")
 
+        delegate.compactOrigin = compact.origin
+        delegate.position(false)
+        expect(!delegate.applicationShouldHandleReopen(app, hasVisibleWindows: true), "Reopen is handled by bist itself")
+        pump(0.5)
+        expect(delegate.state.expanded && !delegate.state.isTransitioning && delegate.panel.frame == open,
+               "Reopening from Spotlight or Finder opens the panel")
+        let openDetail = UUID()
+        delegate.state.detailID = openDetail
+        _ = delegate.applicationShouldHandleReopen(app, hasVisibleWindows: true)
+        expect(delegate.state.expanded && delegate.state.detailID == openDetail, "Reopening an already open panel keeps the current page")
+        set(false, animated: false)
+
         // Capture the real native host for a visual check of the new steady states.
         func capture(_ name: String) throws {
             surface.layoutSubtreeIfNeeded(); surface.displayIfNeeded()
@@ -229,6 +241,7 @@ struct PanelLifecycleTests {
         set(true, animated: false); pump(0.05)
         try capture("motion-expanded")
         delegate.panel.orderOut(nil)
+        set(false, animated: false)
         print("PASS: \(checks) native panel lifecycle checks (fixed layout, 100 reversals, stale callbacks, click/drag interruption, reduced motion, edge clamping)")
     }
 }

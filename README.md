@@ -22,7 +22,7 @@ Requires an Apple Silicon Mac (M1 or later), macOS 14 Sonoma or later, and Apple
 
 The installer builds and checks the app before copying it to `~/Applications/bist.app` and opening it. A failed build or copy leaves an existing installation intact. Quit the installed copy of bist before installing or updating. Tasks and notes stay in `~/Library/Application Support/bist/`.
 
-Look for the small orange control near the top-right corner of your screen. Click it to open the panel. bist runs without a Dock icon.
+Look for the small orange control near the top-right corner of your screen. Click it to open the panel. bist runs without a Dock icon. While it's running, opening bist again from Spotlight, Finder or Launchpad also opens the panel.
 
 The build signs the app locally. If macOS blocks opening it, use System Settings → Privacy & Security → Open Anyway after attempting to open it.
 

@@ -519,6 +519,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     @objc func showPanel() { state.setExpanded(true); panel.makeKeyAndOrderFront(nil) }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !state.expanded { state.setExpanded(true) }
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        return false
+    }
     @objc func quit() { NSApp.terminate(nil) }
 }
 
