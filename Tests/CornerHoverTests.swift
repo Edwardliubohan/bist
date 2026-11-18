@@ -72,6 +72,7 @@ struct CornerHoverTests {
         let previewWindow = NSApplication.shared.windows.first { $0.title == "bist task preview" }!
         let previewHost = previewWindow.contentView!
         func settlePreview() { pump(); previewHost.layoutSubtreeIfNeeded(); pump() }
+        preview.revealForTesting()
         func scrollViews(_ view: NSView) -> [NSScrollView] {
             (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
         }
@@ -111,8 +112,64 @@ struct CornerHoverTests {
         settlePreview()
         precondition(previewWindow.frame.height == 50, "Completing tasks shrinks the preview back to empty")
         precondition(!previewWindow.canBecomeKey && !previewWindow.canBecomeMain, "Scrolling preview remains passive")
+        // Hover reveal. Nothing for half a second, then the card grows out of the icon.
+        for index in 1...4 { precondition(previewStore.addTask(title: "Reveal task \(index)")) }
+        settlePreview()
         preview.cancel()
-        print("PASS: native preview content fitting, 720-point cap, full-list scrolling, overlay style, and completion shrink")
+        let revealWindow = previewWindow
+        func wait(_ seconds: TimeInterval) { RunLoop.main.run(until: Date(timeIntervalSinceNow: seconds)) }
+        func waitUntil(_ limit: TimeInterval, _ condition: () -> Bool) -> Bool {
+            let end = Date(timeIntervalSinceNow: limit)
+            while !condition() && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005)) }
+            return condition()
+        }
+        let iconCenter = CGPoint(x: anchor.midX, y: anchor.midY)
+        preview.testPointer = iconCenter
+        let hoverStart = Date()
+        preview.cornerHoverChanged(true)
+        precondition(waitUntil(3) { revealWindow.isVisible }, "Preview appears after sustained hover")
+        precondition(Date().timeIntervalSince(hoverStart) >= HoverPreviewInteraction.enterDelay - 0.01, "Preview waits half a second before appearing")
+        precondition(!revealWindow.hasShadow, "Native shadow waits while the card is still growing")
+        for frame in 0..<6 { try snapshot("reveal-\(frame)"); wait(0.05) }
+        precondition(waitUntil(3) { preview.isRevealed && revealWindow.hasShadow }, "Settled card is full size with its native shadow")
+        try snapshot("reveal-settled")
+        preview.testPointer = CGPoint(x: -10, y: -10)
+        preview.cornerHoverChanged(false)
+        precondition(waitUntil(3) { !preview.isRevealed }, "Leaving starts the shrink")
+        precondition(!revealWindow.isVisible || revealWindow.ignoresMouseEvents, "A shrinking card never takes clicks")
+        precondition(waitUntil(3) { !revealWindow.isVisible }, "Shrink ends by ordering the window out")
+        precondition(!revealWindow.ignoresMouseEvents, "Ordering out restores mouse handling for the next reveal")
+        preview.testPointer = iconCenter
+        preview.cornerHoverChanged(true)
+        wait(0.1)
+        preview.testPointer = CGPoint(x: -10, y: -10)
+        preview.cornerHoverChanged(false)
+        wait(0.7)
+        precondition(!revealWindow.isVisible, "A brief pass over the icon never opens the preview")
+        preview.testPointer = iconCenter
+        preview.cornerHoverChanged(true)
+        precondition(waitUntil(3) { revealWindow.isVisible }, "Reveal works again after a cancelled pass")
+        precondition(waitUntil(3) { preview.isRevealed }, "Second reveal settles")
+        preview.testPointer = CGPoint(x: -10, y: -10)
+        preview.cornerHoverChanged(false)
+        precondition(waitUntil(3) { !preview.isRevealed }, "Second leave starts the shrink")
+        preview.testPointer = iconCenter
+        preview.cornerHoverChanged(true)
+        var stayedUp = true
+        let reversed = waitUntil(1) { stayedUp = stayedUp && revealWindow.isVisible; return preview.isRevealed }
+        precondition(reversed && stayedUp, "Returning during the shrink reverses it without the window disappearing")
+        // Escape shrinks too, but a re-hover must then wait the full dwell.
+        precondition(waitUntil(3) { preview.isRevealed }, "Reversed card settles")
+        precondition(preview.handleEscape(), "Escape dismisses the visible preview")
+        preview.testPointer = CGPoint(x: -10, y: -10)
+        preview.cornerHoverChanged(false)
+        preview.testPointer = iconCenter
+        preview.cornerHoverChanged(true)
+        wait(0.3)
+        precondition(!preview.isVisible && !preview.isRevealed, "Re-hover after Escape does not reverse the shrink")
+        preview.testPointer = nil
+
+        print("PASS: native preview content fitting, 720-point cap, full-list scrolling, overlay style, completion shrink, 500 ms hover delay and grow-out reveal")
         print("PASS: native logo tracking bounds, stable area, expanded enter/body exit/reentry/window exit, compact hover, teardown")
     }
 }
